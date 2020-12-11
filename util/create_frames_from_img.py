@@ -28,7 +28,8 @@ def main():
         print("Working on frame number %i" % frame_num)
         frame = np.array(img[line:line + 32, :, :])
         frame_path = "_".join([input_path, str(start_line), str(frame_num)])
-        envi.save_image(frame_path + ".hdr", frame, interleave="bil", ext="", force=True)
+        np.save(frame_path, frame)
+        envi.write_envi_header(frame_path + ".hdr", hdr)
         line += 32
 
 
