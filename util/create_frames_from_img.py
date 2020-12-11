@@ -16,16 +16,21 @@ def main():
     start_line = int(sys.argv[2])
     num_frames = int(sys.argv[3])
 
-    img = envi.open(input_path + ".hdr", input_path)
-    meta = img.metadata.copy()
-    meta["lines"] = 32
+    hdr = envi.read_envi_header(input_path + ".hdr")
+    lines = int(hdr['lines'])
+    bands = int(hdr['bands'])
+    samples = int(hdr['samples'])
+    img = np.memmap(input_path, shape=(lines, bands, samples), dtype=np.uint16, mode="r")
+
+    hdr["lines"] = 32
     line = start_line
     for frame_num in range(num_frames):
         print("Working on frame number %i" % frame_num)
         frame = np.array(img[line:line + 32, :, :])
         frame_path = "_".join([input_path, str(start_line), str(frame_num)])
-        envi.save_image(frame_path + ".hdr", frame, metadata=meta, interleave="bil", ext="", force=True)
+        envi.save_image(frame_path + ".hdr", frame, interleave="bil", ext="", force=True)
         line += 32
+
 
 if __name__ == '__main__':
     main()
