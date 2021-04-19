@@ -18,7 +18,8 @@ def main():
     start_line = int(sys.argv[2])
     num_frames = int(sys.argv[3])
 
-    hdr = envi.read_envi_header(input_path + ".hdr")
+    hdr_path = input_path.replace(".img", ".hdr") if input_path.endswith(".img") else input_path + ".hdr"
+    hdr = envi.read_envi_header(hdr_path)
     lines = int(hdr['lines'])
     bands = int(hdr['bands'])
     samples = int(hdr['samples'])
@@ -26,6 +27,11 @@ def main():
 
     hdr["lines"] = 32
     line = start_line
+    remaining_lines = 0
+    # TODO: remove second loop
+    if num_frames == 0:
+        num_frames = lines // 32
+        remaining_lines = lines % 32
     for frame_num in range(num_frames):
         print("Working on frame number %i" % frame_num)
         frame_path = "_".join([input_path, str(start_line), str(frame_num)])
@@ -34,7 +40,19 @@ def main():
         frame[:, :, :] = img[line:line + 32, :, :].copy()
         del frame
         line += 32
+    if remaining_lines > 0:
+        hdr["lines"] = remaining_lines
+        print("Working on final frame with extra %i lines" % remaining_lines)
+        frame_path = "_".join([input_path, str(start_line), str(frame_num + 1)])
+        out_file = envi.create_image(frame_path + ".hdr", hdr, ext='', force=True)
+        frame = out_file.open_memmap(interleave='source', writable=True)
+        frame[:, :, :] = img[line:line + remaining_lines, :, :].copy()
+        del frame
 
 
 if __name__ == '__main__':
     main()
+
+# np_arr = np.full(self.np_shape, -9999, dtype=np.float32)
+# self.np_file = np.save(self.np_fname, np_arr)
+# self.np_memmap = np.memmap(self.np_fname, shape=self.np_shape, dtype=np.float32, mode='r+')
