@@ -18,6 +18,7 @@ HDR_NUM_BYTES = 1280
 class Frame:
 
     def __init__(self, frame_path=None):
+        # TODO: Change this from frame_path to frame
         logger.debug("Initializing frame from path %s" % frame_path)
         with open(frame_path, "rb") as f:
             frame = f.read()

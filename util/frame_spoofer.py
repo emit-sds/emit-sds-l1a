@@ -1,6 +1,6 @@
 """
 This utility takes a compressed 32-line frame and prepends an uncompressed, spoofed frame header to create a binary
-file similar to what is expected from the app FSF.
+file similar to what is expected from the app FSW.
 
 Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
