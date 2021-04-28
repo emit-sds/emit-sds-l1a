@@ -9,6 +9,8 @@ import logging
 import os
 import sys
 
+from emit_sds_l1a.frame import Frame
+
 logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG)
 logger = logging.getLogger("emit-sds-l10")
 
@@ -107,7 +109,6 @@ class SciencePacketProcessor:
         self.HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
         self.MIN_PROCABLE_PKT_LEN = 8
         self.stream = open(stream_path, "rb")
-        self.frame = bytearray()
         self._pkt_partial = None
 
     def read_frame(self):
@@ -142,6 +143,7 @@ class SciencePacketProcessor:
                 pkt = self._read_next_packet()
                 if self._pkt_partial:
                     pkt.data = self._pkt_partial.data + pkt.data
+                    self._pkt_partial = None
             index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
             if index is not None:
                 logger.debug(f"Found sync word at index {index}")
@@ -230,10 +232,6 @@ class SciencePacketProcessor:
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
 
-    def _read_frame_packets(self):
-        while True:
-            self.frame += self._read_next_packet().data
-
     def _reconstruct_frame(self, pkt_parts):
         frame = bytearray()
         for pkt in pkt_parts:
@@ -255,8 +253,22 @@ class SciencePacketProcessor:
 
         return index
 
-stream_path = sys.argv[1]
-processor = SciencePacketProcessor(stream_path)
-frame = processor.read_frame()
-with open("out_frame", "wb") as f:
-    f.write(frame)
+
+def main():
+    stream_path = sys.argv[1]
+    processor = SciencePacketProcessor(stream_path)
+    while True:
+        frame_binary = processor.read_frame()
+        frame = Frame(frame_binary)
+        out_dir = frame.dcid
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        out_file = "_".join([frame.dcid, str(frame.frame_num).zfill(2)])
+        out_path = os.path.join(out_dir, out_file)
+        with open(out_path, "wb") as f:
+            f.write(frame_binary)
+            logger.debug(f"Frame written to path {out_path}")
+
+
+if __name__ == '__main__':
+    main()

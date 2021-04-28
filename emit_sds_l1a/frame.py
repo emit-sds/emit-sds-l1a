@@ -17,14 +17,12 @@ HDR_NUM_BYTES = 1280
 
 class Frame:
 
-    def __init__(self, frame_path=None):
+    def __init__(self, frame_binary):
         # TODO: Change this from frame_path to frame
-        logger.debug("Initializing frame from path %s" % frame_path)
-        with open(frame_path, "rb") as f:
-            frame = f.read()
-        self.hdr = frame[0: 1280]
+        logger.debug("Initializing frame")
+        self.hdr = frame_binary[0: 1280]
         data_size = int.from_bytes(self.hdr[4:8], byteorder="little", signed=False)
-        self.data = frame[1280: 1280 + data_size]
+        self.data = frame_binary[1280: 1280 + data_size]
         self.dcid = self.hdr[28:32].decode("utf-8")
         self.frame_num = int.from_bytes(self.hdr[8:16], byteorder="little", signed=False)
 
@@ -44,6 +42,13 @@ class Frame:
             f.write(self.data)
 
 
-frame_path = sys.argv[1]
-frame = Frame(frame_path)
-frame.write_data(os.path.dirname(frame_path))
+def main():
+    frame_path = sys.argv[1]
+    with open(frame_path, "rb") as f:
+        frame_binary = f.read()
+    frame = Frame(frame_binary)
+    frame.write_data(os.path.dirname(frame_path))
+
+
+if __name__ == '__main__':
+    main()

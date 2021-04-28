@@ -1,1 +1,4 @@
 .idea
+emit_sds_l1a.egg-info
+__pycache__
+test
