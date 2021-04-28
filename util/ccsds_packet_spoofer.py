@@ -79,7 +79,8 @@ class CCSDSPacketSpoofer:
 
 
 data_path = sys.argv[1]
-out_path = os.path.join(os.path.dirname(data_path), "ccsds_stream.bin")
+out_path = data_path + "_ccsds.bin"
+# out_path = os.path.join(os.path.dirname(data_path), "ccsds_stream.bin")
 with open(data_path, "rb") as f:
     psc = 1
     data = f.read(MAX_USER_DATA_FIELD)

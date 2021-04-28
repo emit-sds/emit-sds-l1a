@@ -27,7 +27,7 @@ class SciencePacketProcessingException(Exception):
 
 class CCSDSPacket:
 
-    def __init__(self, stream, **kwargs):
+    def __init__(self, stream=None, **kwargs):
         logger.debug(f"Initializing CCSSDS Packet")
         if stream:
             self.read(stream)
@@ -116,7 +116,7 @@ class SciencePacketProcessor:
         logger.debug("Beginning science frame read")
         while True:
             try:
-                # self._read_frame_packets()
+                # TODO: How to handle missing packets and overlap packets (already read)
                 start_pkt = self._read_frame_start_packet()
                 pkt_parts = self._read_pkt_parts(start_pkt)
                 return self._reconstruct_frame(pkt_parts)
