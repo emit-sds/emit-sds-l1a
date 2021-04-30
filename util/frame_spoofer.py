@@ -57,11 +57,7 @@ class FrameSpoofer:
         hdr[28:32] = dcid_str_arr
 
         hdr[32:36] = acq_status.to_bytes(4, byteorder="little", signed=False)
-
-        # Set collection status
-        if frame_num == 0:
-            status = 0
-
+        logger.debug(f"acq_status is {acq_status}")
 
         return hdr
 
@@ -80,5 +76,6 @@ class FrameSpoofer:
 
 
 data_path = sys.argv[1]
-frame = FrameSpoofer(data_path)
+acq_status = int(sys.argv[2])
+frame = FrameSpoofer(data_path, acq_status)
 frame.save(os.path.dirname(data_path))
