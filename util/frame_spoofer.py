@@ -17,12 +17,12 @@ HDR_NUM_BYTES = 1280
 
 class FrameSpoofer:
 
-    def __init__(self, data_path=None):
+    def __init__(self, data_path=None, acq_status=None):
         self.hdr = None
         self.data = None
         # If we have a frame_path, then load it in to the Frame object
         if data_path:
-            self.hdr = self._construct_hdr(data_path)
+            self.hdr = self._construct_hdr(data_path, acq_status)
             with open(data_path, "rb") as f:
                 self.data = f.read()
                 logger.debug("data length is %s" % len(self.data))
@@ -30,7 +30,7 @@ class FrameSpoofer:
                     self.data += bytearray(16 - len(self.data) % 16)
                 logger.debug("data length is now %s" % len(self.data))
 
-    def _construct_hdr(self, path):
+    def _construct_hdr(self, path, acq_status):
         logger.debug("Constructing hdr bytearray")
         hdr = bytearray(HDR_NUM_BYTES)
 
@@ -55,6 +55,8 @@ class FrameSpoofer:
         logger.debug("dcid_str: %s" % dcid_str)
         dcid_str_arr = bytearray(dcid_str, "utf-8")
         hdr[28:32] = dcid_str_arr
+
+        hdr[32:36] = acq_status.to_bytes(4, byteorder="little", signed=False)
 
         # Set collection status
         if frame_num == 0:
