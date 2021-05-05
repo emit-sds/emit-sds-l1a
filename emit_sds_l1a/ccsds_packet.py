@@ -136,7 +136,7 @@ class SciencePacketProcessor:
             pkt = None
             if self._pkt_partial:
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, self._pkt_partial.data)
-                if index:
+                if index is not None:
                     pkt = self._pkt_partial
                     self._pkt_partial = None
             if not pkt:
@@ -171,7 +171,7 @@ class SciencePacketProcessor:
         if expected_frame_len < len(start_pkt.data):
             # Check for next sync word in this segment before we read it
             index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, start_pkt.data[4:expected_frame_len])
-            if index:
+            if index is not None:
                 msg = (
                     "Found another instance of sync word while attempting to read frame smaller than packet length."
                     f"Index found at: {index + 4}, Exp frame len: {expected_frame_len}."
@@ -211,7 +211,7 @@ class SciencePacketProcessor:
                 # Look for next sync word and throw exception if not found
                 logger.debug("Case 3")
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt_parts[-1].data)
-                if index:
+                if index is not None:
                     # Create partial first and then remove extra data from pkt_parts
                     partial_body = pkt_parts[-1].data[index:]
                     partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data, body=pkt_parts[-1].body[:10] + partial_body)

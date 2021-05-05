@@ -31,8 +31,12 @@ class Frame:
         fname = "_".join([self.dcid, str(self.frame_num).zfill(2), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
         logger.debug("Writing frame to path %s" % out_path)
+        logger.debug("data length is %s" % len(self.data))
+        if len(self.data) % 16 > 0:
+            self.data += bytearray(16 - len(self.data) % 16)
+        logger.debug("data length is now %s" % len(self.data))
         with open(out_path, "wb") as f:
-            f.write(self.data)
+            f.write(self.hdr + self.data)
 
     def write_data(self, data_dir):
         # Lookup start time using DCID
