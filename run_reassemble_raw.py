@@ -11,7 +11,13 @@ import logging
 import os
 import subprocess
 
+import numpy as np
+import spectral.io.envi as envi
+
 from emit_sds_l1a.frame import Frame
+
+MISSING_DATA_FLAG = -9998
+CLOUDY_DATA_FLAG = -9997
 
 
 def main():
@@ -39,7 +45,9 @@ def main():
     # Process frame headers and write out compressed data files
     comp_frame_paths = glob.glob(os.path.join(args.comp_frames_dir, "*"))
     comp_frame_paths.sort()
+    decomp_frame_paths = []
     for path in comp_frame_paths:
+        logging.info(f"Reading in frame {path}")
         with open(path, "rb") as f:
             frame_binary = f.read()
         frame = Frame(frame_binary)
@@ -56,6 +64,38 @@ def main():
         if output.returncode != 0:
             logging.error(f"Failed to decompress frame with command '{cmd_str}'")
             raise RuntimeError(output.stderr.decode("utf-8"))
+        decomp_frame_paths.append(comp_data_path + ".decomp")
+
+    # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
+    acquisition_prefix = os.path.basename(decomp_frame_paths[0].split("_")[0])
+    hdr_path = os.path.join(args.out_dir, acquisition_prefix + "_raw.hdr")
+    num_lines = 32 * (len(decomp_frame_paths) - 1)
+    hdr = {
+        "description": "EMIT L1A raw instrument data (units: DN)",
+        "samples": 1280,
+        "lines": num_lines,
+        "bands": 328,
+        "header offset": 0,
+        "file type": "ENVI",
+        "data type": 2,
+        "interleave": "bil",
+        "byte order": 0
+    }
+
+    envi.write_envi_header(hdr_path, hdr)
+    out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
+    output = out_file.open_memmap(interleave="source", writable=True)
+
+    logging.debug(f"Assembling frames into raw file with header {hdr_path}")
+    line = 0
+    for path in decomp_frame_paths:
+        status = os.path.basename(path).split(".")[0].split("_")[2]
+        # TODO: Fill in sections with data or missing/cloudy flag values
+        if status != "2":
+            frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        line += 32
+    del output
 
     logging.info("Done")
 
