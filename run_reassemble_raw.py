@@ -16,6 +16,7 @@ import spectral.io.envi as envi
 
 from emit_sds_l1a.frame import Frame
 
+# TODO: Different flags for missing frame vs. missing portion of frame?
 MISSING_DATA_FLAG = -9998
 CLOUDY_DATA_FLAG = -9997
 
@@ -66,9 +67,19 @@ def main():
             raise RuntimeError(output.stderr.decode("utf-8"))
         decomp_frame_paths.append(comp_data_path + ".decomp")
 
+    # Add empty decompressed frame files to fill in missing frame numbers
+    decomp_frame_nums = [int(os.path.basename(path).split("_")[1]) for path in decomp_frame_paths]
+    seq_frame_nums = list(range(decomp_frame_nums[0], decomp_frame_nums[0] + len(decomp_frame_nums)))
+    missing_frame_nums = list(set(seq_frame_nums) - set(decomp_frame_nums))
+    logging.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
+    acquisition_id = os.path.basename(decomp_frame_paths[0].split("_")[0])
+    for frame_num in missing_frame_nums:
+        decomp_frame_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num).zfill(5), "6"])))
+    decomp_frame_paths.sort()
+
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
-    acquisition_prefix = os.path.basename(decomp_frame_paths[0].split("_")[0])
-    hdr_path = os.path.join(args.out_dir, acquisition_prefix + "_raw.hdr")
+    # TODO: Look at submode flag to identify raw vs dark
+    hdr_path = os.path.join(args.out_dir, acquisition_id + "_raw.hdr")
     num_lines = 32 * (len(decomp_frame_paths) - 1)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
@@ -85,14 +96,25 @@ def main():
     envi.write_envi_header(hdr_path, hdr)
     out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
     output = out_file.open_memmap(interleave="source", writable=True)
+    # TODO: initialize output to some value here?  how do I handle missing/corrupt data?
+    output[:,:,:] = -9999
 
     logging.debug(f"Assembling frames into raw file with header {hdr_path}")
     line = 0
     for path in decomp_frame_paths:
-        status = os.path.basename(path).split(".")[0].split("_")[2]
+        status = int(os.path.basename(path).split(".")[0].split("_")[2])
         # TODO: Fill in sections with data or missing/cloudy flag values
-        if status != "2":
+        # Non-cloudy frames
+        if status in (0, 1):
             frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        # Cloudy frames
+        if status in (4, 5):
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG, dtype=np.uint16)
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        # Missing frames
+        if status == 6:
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG, dtype=np.uint16)
             output[line:line + 32, :, :] = frame[:, :, :].copy()
         line += 32
     del output

@@ -26,7 +26,7 @@ class Frame:
         self.acq_status = int.from_bytes(self.hdr[32:36], byteorder="little", signed=False)
 
     def save(self, out_dir):
-        fname = "_".join([self.dcid, str(self.frame_num).zfill(2), str(self.acq_status)])
+        fname = "_".join([self.dcid, str(self.frame_num).zfill(5), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
         logger.debug("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
