@@ -35,6 +35,3 @@ def test_reassemble_raw():
     if output.returncode == 0:
         os.system(f"rm -rf {out_dir}")
     assert output.returncode == 0
-
-
-test_reassemble_raw()
