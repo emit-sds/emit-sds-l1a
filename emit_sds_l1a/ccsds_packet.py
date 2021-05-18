@@ -6,13 +6,9 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 
 import itertools
 import logging
-import os
 import sys
 
-from emit_sds_l1a.frame import Frame
-
-logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG)
-logger = logging.getLogger("emit-sds-l10")
+logger = logging.getLogger("emit-sds-l1a")
 
 CCSDS_PKT_SEC_COUNT_MOD = 16384
 HDR_NUM_BYTES = 6
@@ -252,19 +248,3 @@ class SciencePacketProcessor:
                 break
 
         return index
-
-# TODO: Move to separate run file
-def main():
-    stream_path = sys.argv[1]
-    processor = SciencePacketProcessor(stream_path)
-    out_dir = sys.argv[2]
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    while True:
-        frame_binary = processor.read_frame()
-        frame = Frame(frame_binary)
-        frame.save(out_dir)
-
-
-if __name__ == '__main__':
-    main()

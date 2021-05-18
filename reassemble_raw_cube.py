@@ -27,11 +27,11 @@ def main():
     # Read in args
     parser = argparse.ArgumentParser()
     parser.add_argument("comp_frames_dir", help="Compressed frames directory path")
-    parser.add_argument("flexcodec_exe", help="Path to flexcodec exe")
-    parser.add_argument("constants_path", help="Path to constants.txt file")
-    parser.add_argument("init_data_path", help="Path to init_data.bin file")
+    parser.add_argument("--flexcodec_exe", help="Path to flexcodec exe")
+    parser.add_argument("--constants_path", help="Path to constants.txt file")
+    parser.add_argument("--init_data_path", help="Path to init_data.bin file")
     parser.add_argument("--out_dir", help="Output directory", default=".")
-    parser.add_argument("--level", help="Logging level", default="DEBUG")
+    parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file")
 
     args = parser.parse_args()

@@ -22,9 +22,12 @@ def test_reassemble_raw():
     out_dir = os.path.join(test_dir, "out")
     log_path = os.path.join(out_dir, "test_run.log")
 
-
-    cmd = ["python", reassemble_raw_exe, compressed_frames_dir, flex_exe, constants_txt, init_data_bin,
-        "--out_dir", out_dir, "--log_path", log_path]
+    cmd = ["python", reassemble_raw_exe, compressed_frames_dir,
+           "--flexcodec_exe", flex_exe,
+           "--constants_path",constants_txt,
+           "--init_data_path", init_data_bin,
+           "--out_dir", out_dir,
+           "--log_path", log_path]
 
     output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
     if output.returncode != 0:
