@@ -21,5 +21,3 @@ with open(frame_path, "rb") as f:
     frame_binary = f.read(size - 1000000)
 frame = Frame(frame_binary)
 frame.write_data(frame_path + "_trunc")
-
-

@@ -105,7 +105,7 @@ def main():
     out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
     output = out_file.open_memmap(interleave="source", writable=True)
     # TODO: initialize output to some value here?  how do I handle missing/corrupt data?
-    output[:,:,:] = -9999
+    output[:, :, :] = -9999
 
     logger.debug(f"Assembling frames into raw file with header {hdr_path}")
     line = 0

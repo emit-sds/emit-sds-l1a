@@ -64,8 +64,7 @@ class CCSDSPacket:
         stat = False
         if self.data and len(self.data) >= 4:
             stat = (
-                int.from_bytes(self.data[:4], byteorder="big")
-                == self.HEADER_SYNC_WORD
+                int.from_bytes(self.data[:4], byteorder="big") == self.HEADER_SYNC_WORD
             )
         return stat
 
@@ -84,7 +83,7 @@ class CCSDSPacket:
     @property
     def data(self):
         if self.body:
-            return self.body[SEC_HDR_LEN :]
+            return self.body[SEC_HDR_LEN:]
         else:
             return None
 

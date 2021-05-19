@@ -14,8 +14,9 @@ setuptools.setup(
     version="0.1.0",
     author="Winston Olson-Duvall",
     author_email="winston.olson-duvall@jpl.nasa.gov",
-    description="""L1A PGEs for EMIT data processing, including depacketization and reassembly or reformatting of raw 
-                data""",
+    description="""
+        L1A PGEs for EMIT data processing, including depacketization and reassembly or reformatting of raw data
+        """,
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.jpl.nasa.gov/emit-sds/emit-sds-l1a",

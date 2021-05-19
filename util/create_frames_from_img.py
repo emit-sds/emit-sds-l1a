@@ -35,7 +35,7 @@ def main():
     for frame_num in range(num_frames):
         print("Working on frame number %i" % frame_num)
         frame_path = "_".join([input_path, str(start_line), str(frame_num)])
-        out_file = envi.create_image(frame_path + ".hdr", hdr, ext='',force=True)
+        out_file = envi.create_image(frame_path + ".hdr", hdr, ext='', force=True)
         frame = out_file.open_memmap(interleave='source', writable=True)
         frame[:, :, :] = img[line:line + 32, :, :].copy()
         del frame
@@ -52,7 +52,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# np_arr = np.full(self.np_shape, -9999, dtype=np.float32)
-# self.np_file = np.save(self.np_fname, np_arr)
-# self.np_memmap = np.memmap(self.np_fname, shape=self.np_shape, dtype=np.float32, mode='r+')
