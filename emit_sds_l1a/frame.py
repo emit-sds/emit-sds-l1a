@@ -19,27 +19,27 @@ class Frame:
         self.hdr = frame_binary[0: HDR_NUM_BYTES]
         self.sync_word = self.hdr[0:4]
         self.data_size = int.from_bytes(self.hdr[4:8], byteorder="little", signed=False)
-        self.data = frame_binary[HDR_NUM_BYTES: HDR_NUM_BYTES + self.data_size]
+        self.data = frame_binary[HDR_NUM_BYTES:]
+        # self.data = frame_binary[HDR_NUM_BYTES: HDR_NUM_BYTES + self.data_size]
         # self.data_filler = frame_binary[HDR_NUM_BYTES + self.data_size:]
         self.frame_count = int.from_bytes(self.hdr[8:16], byteorder="little", signed=False)
-        self.frame_params = self.hdr[24:28]
+        self.compression_flag = self.hdr[24] & 0x01
         self.dcid = int.from_bytes(self.hdr[28:32], byteorder="little", signed=False)
         self.acq_status = int.from_bytes(self.hdr[32:36], byteorder="little", signed=False)
+        self.first_frame_flag = self.hdr[32] & 0x01
+        self.cloudy_flag = (self.hdr[32] & 0x04) >> 2
         self.line_count = int.from_bytes(self.hdr[44:52], byteorder="little", signed=False)
         self.frame_count_in_acq = int.from_bytes(self.hdr[810:818], byteorder="little", signed=False)
         self.solar_zenith = int.from_bytes(self.hdr[822:826], byteorder="little", signed=False)
-
-        self._parse_frame_params()
+        self.planned_num_frames = int.from_bytes(self.hdr[922:926], byteorder="little", signed=False)
 
     def __repr__(self):
-        repr = "<Frame: sync_word={} data_size={} frame_count={} dcid={} acq_status={} line_count={} ".format(
-            self.sync_word, self.data_size, self.frame_count, self.dcid, self.acq_status, self.line_count)
-        repr += "frame_count_in_acq={} solar_zenith={}>".format(self.frame_count_in_acq, self.solar_zenith)
+        repr = "<Frame: sync_word={} data_size={} frame_count={} compression_flag={} dcid={} acq_status={} ".format(
+            self.sync_word, self.data_size, self.frame_count, self.compression_flag, self.dcid, self.acq_status)
+        repr += "first_frame_flag={} cloudy_flag={} frame_count_in_acq={} solar_zenith={} ".format(
+            self.first_frame_flag, self.cloudy_flag, self.frame_count_in_acq, self.solar_zenith)
+        repr += "planned_num_frames={}>".format(self.planned_num_frames)
         return repr
-
-    def _parse_frame_params(self):
-        # TODO: Get compression info and cloudy info
-        pass
 
     def save(self, out_dir):
         fname = "_".join([self.dcid, str(self.frame_count).zfill(5), str(self.acq_status)])

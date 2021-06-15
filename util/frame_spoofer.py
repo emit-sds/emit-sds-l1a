@@ -17,20 +17,13 @@ HDR_NUM_BYTES = 1280
 
 class FrameSpoofer:
 
-    def __init__(self, data_path=None, acq_status=None):
-        self.hdr = None
-        self.data = None
-        # If we have a frame_path, then load it in to the Frame object
-        if data_path:
-            self.hdr = self._construct_hdr(data_path, acq_status)
-            with open(data_path, "rb") as f:
-                self.data = f.read()
-                logger.debug("data length is %s" % len(self.data))
-                if len(self.data) % 16 > 0:
-                    self.data += bytearray(16 - len(self.data) % 16)
-                logger.debug("data length is now %s" % len(self.data))
+    def __init__(self, data_path, compression_flag, acq_status, num_frames):
+        self.hdr = self._construct_hdr(data_path, compression_flag, acq_status, num_frames)
+        with open(data_path, "rb") as f:
+            self.data = f.read()
+            logger.debug("data length is %s" % len(self.data))
 
-    def _construct_hdr(self, path, acq_status):
+    def _construct_hdr(self, path, compression_flag, acq_status, num_frames):
         logger.debug("Constructing hdr bytearray")
         hdr = bytearray(HDR_NUM_BYTES)
 
@@ -38,35 +31,53 @@ class FrameSpoofer:
         sync_word = bytes.fromhex("81FFFF81")
         logger.debug(sync_word)
         hdr[0:4] = sync_word
-        logger.debug(b"hdr[0:10]: %b" % hdr[:10])
+        logger.debug(b"hdr[0:4]: %b" % hdr[:4])
 
         # Add image size in bytes
         size = os.path.getsize(path)
         logger.debug("data size is %i" % size)
         hdr[4:8] = size.to_bytes(4, byteorder="little", signed=False)
 
-        # Add frame number
-        frame_num = int(os.path.basename(path).split("_")[8].replace(".flex", ""))
-        logger.debug("frame_num is %i" % frame_num)
-        hdr[8:16] = frame_num.to_bytes(8, byteorder="little", signed=False)
+        # Add frame count
+        frame_count = int(os.path.basename(path).split("_")[8].replace(".flex", ""))
+        logger.debug("frame_count is %i" % frame_count)
+        hdr[8:16] = frame_count.to_bytes(8, byteorder="little", signed=False)
 
-        # Get DCID from file name and write to hdr (as string for now)
+        # Add frame params hdr[24:28]
+        hdr[24] = hdr[24] | compression_flag
+        logger.debug("hdr[24]: " + str(bin(hdr[24])[2:].zfill(8)))
+
+        # Get DCID from file name and write to hdr
         dcid_str = os.path.basename(path).split("_")[0][-4:]
         logger.debug("dcid_str: %s" % dcid_str)
         dcid_str_arr = bytearray(dcid_str, "utf-8")
-        hdr[28:32] = dcid_str_arr
+        # hdr[28:32] = dcid_str_arr
+        dcid = int(dcid_str)
+        logger.debug(f"dcid: {dcid}")
+        hdr[28:32] = dcid.to_bytes(4, byteorder="little", signed=False)
 
+        # Set acquisition status
         hdr[32:36] = acq_status.to_bytes(4, byteorder="little", signed=False)
         logger.debug(f"acq_status is {acq_status}")
+        logger.debug("hdr[32]: " + str(bin(hdr[32])[2:].zfill(8)))
+
+        # Frame count in acquisition
+        frame_count_in_acq = frame_count
+        logger.debug("frame_count_in_acq is %i" % frame_count_in_acq)
+        hdr[810:818] = frame_count_in_acq.to_bytes(8, byteorder="little", signed=False)
+
+        # Planned number of frames
+        logger.debug(f"planned number of frames is {num_frames}")
+        hdr[922:926] = num_frames.to_bytes(4, byteorder="little", signed=False)
 
         return hdr
 
     def save(self, out_dir):
         logger.debug("Saving frame to disk with frame header and compressed frame data")
-        dcid = self.hdr[28:32].decode("utf-8")
+        dcid = int.from_bytes(self.hdr[28:32], byteorder="little", signed=False)
         logger.debug("dcid is %s" % dcid)
-        frame_num = int.from_bytes(self.hdr[8:16], byteorder="little", signed=False)
-        fname = dcid + "_" + str(frame_num).zfill(2)
+        frame_count = int.from_bytes(self.hdr[8:16], byteorder="little", signed=False)
+        fname = str(dcid).zfill(4) + "_" + str(frame_count).zfill(2)
         out_path = os.path.join(out_dir, fname)
         binary = bytearray()
         binary += self.hdr
@@ -76,6 +87,8 @@ class FrameSpoofer:
 
 
 data_path = sys.argv[1]
-acq_status = int(sys.argv[2])
-frame = FrameSpoofer(data_path, acq_status)
+compression_flag = int(sys.argv[2])
+acq_status = int(sys.argv[3])
+num_frames = int(sys.argv[4])
+frame = FrameSpoofer(data_path, compression_flag, acq_status, num_frames)
 frame.save(os.path.dirname(data_path))

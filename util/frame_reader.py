@@ -17,4 +17,5 @@ frame_path = sys.argv[1]
 with open(frame_path, "rb") as f:
     frame_binary = f.read()
 frame = Frame(frame_binary)
+#frame.write_data("out.img")
 print(frame)
