@@ -17,13 +17,13 @@ HDR_NUM_BYTES = 1280
 
 class FrameSpoofer:
 
-    def __init__(self, data_path, compression_flag, acq_status, num_frames):
-        self.hdr = self._construct_hdr(data_path, compression_flag, acq_status, num_frames)
+    def __init__(self, data_path, compression_flag, processed_flag, acq_status, num_frames):
+        self.hdr = self._construct_hdr(data_path, compression_flag, processed_flag, acq_status, num_frames)
         with open(data_path, "rb") as f:
             self.data = f.read()
             logger.debug("data length is %s" % len(self.data))
 
-    def _construct_hdr(self, path, compression_flag, acq_status, num_frames):
+    def _construct_hdr(self, path, compression_flag, processed_flag, acq_status, num_frames):
         logger.debug("Constructing hdr bytearray")
         hdr = bytearray(HDR_NUM_BYTES)
 
@@ -45,7 +45,10 @@ class FrameSpoofer:
 
         # Add frame params hdr[24:28]
         hdr[24] = hdr[24] | compression_flag
-        logger.debug("hdr[24]: " + str(bin(hdr[24])[2:].zfill(8)))
+        logger.debug("hdr[24] after compression flag: " + str(bin(hdr[24])[2:].zfill(8)))
+
+        hdr[24] = hdr[24] | (processed_flag << 2)
+        logger.debug("hdr[24] after processed flag: " + str(bin(hdr[24])[2:].zfill(8)))
 
         # Get DCID from file name and write to hdr
         dcid_str = os.path.basename(path).split("_")[0][-4:]
@@ -88,7 +91,8 @@ class FrameSpoofer:
 
 data_path = sys.argv[1]
 compression_flag = int(sys.argv[2])
-acq_status = int(sys.argv[3])
-num_frames = int(sys.argv[4])
-frame = FrameSpoofer(data_path, compression_flag, acq_status, num_frames)
+processed_flag = int(sys.argv[3])
+acq_status = int(sys.argv[4])
+num_frames = int(sys.argv[5])
+frame = FrameSpoofer(data_path, compression_flag, processed_flag, acq_status, num_frames)
 frame.save(os.path.dirname(data_path))

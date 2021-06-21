@@ -20,10 +20,9 @@ class Frame:
         self.sync_word = self.hdr[0:4]
         self.data_size = int.from_bytes(self.hdr[4:8], byteorder="little", signed=False)
         self.data = frame_binary[HDR_NUM_BYTES:]
-        # self.data = frame_binary[HDR_NUM_BYTES: HDR_NUM_BYTES + self.data_size]
-        # self.data_filler = frame_binary[HDR_NUM_BYTES + self.data_size:]
         self.frame_count = int.from_bytes(self.hdr[8:16], byteorder="little", signed=False)
         self.compression_flag = self.hdr[24] & 0x01
+        self.processed_flag = (self.hdr[24] & 0x04) >> 2
         self.dcid = int.from_bytes(self.hdr[28:32], byteorder="little", signed=False)
         self.acq_status = int.from_bytes(self.hdr[32:36], byteorder="little", signed=False)
         self.first_frame_flag = self.hdr[32] & 0x01
@@ -34,10 +33,10 @@ class Frame:
         self.planned_num_frames = int.from_bytes(self.hdr[922:926], byteorder="little", signed=False)
 
     def __repr__(self):
-        repr = "<Frame: sync_word={} data_size={} frame_count={} compression_flag={} dcid={} acq_status={} ".format(
-            self.sync_word, self.data_size, self.frame_count, self.compression_flag, self.dcid, self.acq_status)
-        repr += "first_frame_flag={} cloudy_flag={} frame_count_in_acq={} solar_zenith={} ".format(
-            self.first_frame_flag, self.cloudy_flag, self.frame_count_in_acq, self.solar_zenith)
+        repr = "<Frame: sync_word={} data_size={} frame_count={} compression_flag={} processed_flag={} dcid={} ".format(
+            self.sync_word, self.data_size, self.frame_count, self.compression_flag, self.processed_flag, self.dcid)
+        repr += "acq_status={} first_frame_flag={} cloudy_flag={} frame_count_in_acq={} solar_zenith={} ".format(
+            self.acq_status, self.first_frame_flag, self.cloudy_flag, self.frame_count_in_acq, self.solar_zenith)
         repr += "planned_num_frames={}>".format(self.planned_num_frames)
         return repr
 
@@ -46,13 +45,10 @@ class Frame:
         out_path = os.path.join(out_dir, fname)
         logger.debug("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
-        # logger.debug(f"data filler length is {len(self.data_filler)}")
         with open(out_path, "wb") as f:
             f.write(self.hdr + self.data)
 
     def write_data(self, out_path):
-        # fname = "_".join(["emit" + start_time_str, str(self.frame_count).zfill(2)])
-        # out_path = os.path.join(data_dir, fname)
         logger.debug("Writing data to path %s" % out_path)
         with open(out_path, "wb") as f:
             f.write(self.data)
@@ -68,20 +64,20 @@ class FrameStreamProcessor:
         while len(hdr) == 1280:
             logger.debug(f"len(hdr): {len(hdr)}")
             data_size = int.from_bytes(hdr[4:8], byteorder="little", signed=False)
-            # TODO: Find out if this is being used
-            # Add data filler size if necessary
-            # if data_size % 16 > 0:
-            #     data_size += 16 - (data_size % 16)
             data = self.stream.read(data_size)
             frame = Frame(hdr + data)
             print(frame)
+            # Write frame (header + data) to file
             fname = "_".join([dcid, str(frame.frame_count).zfill(5)])
             out_path = os.path.join(out_dir, fname)
             logger.debug("Writing frame to path %s" % out_path)
             with open(out_path, "wb") as f:
                 f.write(hdr + data)
+            # Write just the data to file
             data_out_path = out_path + "_data"
             frame.write_data(data_out_path)
 
             hdr = self.stream.read(1280)
+
         logger.debug("Reached EOF.")
+
