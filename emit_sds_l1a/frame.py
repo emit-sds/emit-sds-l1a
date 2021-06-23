@@ -31,17 +31,22 @@ class Frame:
         self.frame_count_in_acq = int.from_bytes(self.hdr[810:818], byteorder="little", signed=False)
         self.solar_zenith = int.from_bytes(self.hdr[822:826], byteorder="little", signed=False)
         self.planned_num_frames = int.from_bytes(self.hdr[922:926], byteorder="little", signed=False)
+        self.os_time = int.from_bytes(self.hdr[930:938], byteorder="little", signed=False)
+        self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
+        self.coadd_mode = self.hdr[1010] & 0x01
 
     def __repr__(self):
         repr = "<Frame: sync_word={} data_size={} frame_count={} compression_flag={} processed_flag={} dcid={} ".format(
             self.sync_word, self.data_size, self.frame_count, self.compression_flag, self.processed_flag, self.dcid)
         repr += "acq_status={} first_frame_flag={} cloudy_flag={} frame_count_in_acq={} solar_zenith={} ".format(
             self.acq_status, self.first_frame_flag, self.cloudy_flag, self.frame_count_in_acq, self.solar_zenith)
-        repr += "planned_num_frames={}>".format(self.planned_num_frames)
+        repr += "planned_num_frames={} os_time={} num_bands={} coadd_mode={}>".format(
+            self.planned_num_frames, self.os_time, self.num_bands, self.coadd_mode)
         return repr
 
     def save(self, out_dir):
-        fname = "_".join([self.dcid, str(self.frame_count).zfill(5), str(self.acq_status)])
+        fname = "_".join([str(self.dcid).zfill(4), str(self.frame_count).zfill(5),
+                          str(self.planned_num_frames).zfill(5), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
         logger.debug("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))

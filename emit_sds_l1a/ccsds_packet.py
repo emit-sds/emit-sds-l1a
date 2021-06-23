@@ -157,10 +157,7 @@ class SciencePacketProcessor:
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
-        frame_data_filler_len = 0
-        if start_pkt.product_length % 16 > 0:
-            frame_data_filler_len = 16 - start_pkt.product_length % 16
-        expected_frame_len = start_pkt.product_length + 1280 + frame_data_filler_len
+        expected_frame_len = start_pkt.product_length + 1280
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
         # Handle case where frame data is less than current packet data size
         if expected_frame_len < len(start_pkt.data):

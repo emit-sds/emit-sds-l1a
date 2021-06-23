@@ -17,13 +17,14 @@ HDR_NUM_BYTES = 1280
 
 class FrameSpoofer:
 
-    def __init__(self, data_path, compression_flag, processed_flag, acq_status, num_frames):
-        self.hdr = self._construct_hdr(data_path, compression_flag, processed_flag, acq_status, num_frames)
+    def __init__(self, data_path, compression_flag, processed_flag, acq_status, num_frames, num_bands, coadd_mode):
+        self.hdr = self._construct_hdr(data_path, compression_flag, processed_flag, acq_status, num_frames, num_bands,
+                                       coadd_mode)
         with open(data_path, "rb") as f:
             self.data = f.read()
             logger.debug("data length is %s" % len(self.data))
 
-    def _construct_hdr(self, path, compression_flag, processed_flag, acq_status, num_frames):
+    def _construct_hdr(self, path, compression_flag, processed_flag, acq_status, num_frames, num_bands, coadd_mode):
         logger.debug("Constructing hdr bytearray")
         hdr = bytearray(HDR_NUM_BYTES)
 
@@ -73,6 +74,14 @@ class FrameSpoofer:
         logger.debug(f"planned number of frames is {num_frames}")
         hdr[922:926] = num_frames.to_bytes(4, byteorder="little", signed=False)
 
+        # Number of bands
+        logger.debug(f"Number of bands is {num_bands}")
+        hdr[938:942] = num_bands.to_bytes(4, byteorder="little", signed=False)
+
+        # Coadd mode
+        logger.debug(f"Coadd_mode is {coadd_mode}")
+        hdr[1010] = hdr[1010] | coadd_mode
+
         return hdr
 
     def save(self, out_dir):
@@ -94,5 +103,7 @@ compression_flag = int(sys.argv[2])
 processed_flag = int(sys.argv[3])
 acq_status = int(sys.argv[4])
 num_frames = int(sys.argv[5])
-frame = FrameSpoofer(data_path, compression_flag, processed_flag, acq_status, num_frames)
+num_bands = int(sys.argv[6])
+coadd_mode = int(sys.argv[7])
+frame = FrameSpoofer(data_path, compression_flag, processed_flag, acq_status, num_frames, num_bands, coadd_mode)
 frame.save(os.path.dirname(data_path))
