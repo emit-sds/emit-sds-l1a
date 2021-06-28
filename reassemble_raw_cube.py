@@ -63,7 +63,6 @@ def main():
         # TODO: Process frame header and create report?
 
         uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".decomp")
-        # TODO: Don't decompress cloudy frames?
         if frame.compression_flag == 1:
             # Decompress frame
             cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v", "--bil",
@@ -136,11 +135,13 @@ def main():
             output[line:line + 32, :, :] = frame[:, :, :].copy()
         # Cloudy frames
         if status in (4, 5):
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG, dtype=np.uint16)
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
+                            dtype=np.uint16)
             output[line:line + 32, :, :] = frame[:, :, :].copy()
         # Missing frames
         if status == 6:
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG, dtype=np.uint16)
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
+                            dtype=np.uint16)
             output[line:line + 32, :, :] = frame[:, :, :].copy()
         line += 32
     del output
