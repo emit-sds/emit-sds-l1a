@@ -85,4 +85,3 @@ class FrameStreamProcessor:
             hdr = self.stream.read(1280)
 
         logger.debug("Reached EOF.")
-

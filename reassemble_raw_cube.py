@@ -97,7 +97,7 @@ def main():
     expected_frame_num = os.path.basename(raw_frame_paths[0].split("_")[2])
     for frame_num in missing_frame_nums:
         raw_frame_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num).zfill(5),
-                                                                       expected_frame_num, "6"])))
+                                                                    expected_frame_num, "6"])))
     raw_frame_paths.sort()
 
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
