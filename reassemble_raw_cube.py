@@ -54,14 +54,14 @@ def main():
     frame_paths = glob.glob(os.path.join(args.frames_dir, "*"))
     frame_paths.sort()
     raw_frame_paths = []
+    num_bands_list = []
+    processed_flag_list = []
+    coadd_mode_list = []
     for path in frame_paths:
         logger.info(f"Reading in frame {path}")
         with open(path, "rb") as f:
             frame_binary = f.read()
         frame = Frame(frame_binary)
-
-        # TODO: Process frame header and create report?
-
         uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".decomp")
         if frame.compression_flag == 1:
             # Decompress frame
@@ -78,15 +78,37 @@ def main():
             # Just copy the uncompressed frame and rename it
             shutil.copy2(path, uncomp_frame_path)
 
-        # Write out uncompressed frame data section
+        # Get some frame header details and write out uncompressed frame data section
+        # TODO: Process frame header and create report?
         with open(uncomp_frame_path, "rb") as f:
             uncomp_frame_binary = f.read()
         uncomp_frame = Frame(uncomp_frame_binary)
+
+        num_bands_list.append(uncomp_frame.num_bands)
+        processed_flag_list.append(uncomp_frame.processed_flag)
+        coadd_mode_list.append(uncomp_frame.coadd_mode)
+
         uncomp_data_path = uncomp_frame_path + "_no_header"
         uncomp_frame.write_data(uncomp_data_path)
 
         # Add uncompressed data path to list of raw_frame_paths to be reassembled
         raw_frame_paths.append(uncomp_data_path)
+
+    # Check all frames have same number of bands
+    for i in range(len(num_bands_list)):
+        if num_bands_list[i] != num_bands_list[0]:
+            raise RuntimeError(f"Not all frames have the same number of bands. See list of num_bands: {num_bands_list}")
+
+    # Abort if any of the frames are not processed (i.e. they are from the raw partition)
+    for processed_flag in processed_flag_list:
+        if processed_flag == 0:
+            raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
+                               f"{processed_flag_list}")
+
+    # Log warning if coadd mode set to 0
+    for coadd_mode in coadd_mode_list:
+        if coadd_mode == 0:
+            logger.warning(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[1]) for path in raw_frame_paths]
@@ -101,17 +123,13 @@ def main():
     raw_frame_paths.sort()
 
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
-    # TODO: Look at submode flag to identify raw vs dark
-    # TODO: Get number of bands from frame header
-    # TODO: Log if not coadded
-    # TODO: Abort if not processed
     hdr_path = os.path.join(args.out_dir, acquisition_id + "_raw.hdr")
     num_lines = 32 * len(raw_frame_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
         "samples": 1280,
         "lines": num_lines,
-        "bands": 328,
+        "bands": num_bands_list[0],
         "header offset": 0,
         "file type": "ENVI",
         "data type": 2,
@@ -122,7 +140,6 @@ def main():
     envi.write_envi_header(hdr_path, hdr)
     out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
     output = out_file.open_memmap(interleave="source", writable=True)
-    # TODO: initialize output to some value here?  how do I handle missing/corrupt data?
     output[:, :, :] = -9999
 
     logger.debug(f"Assembling frames into raw file with header {hdr_path}")

@@ -14,7 +14,6 @@ logger = logging.getLogger("emit-sds-l1a")
 class Frame:
 
     def __init__(self, frame_binary):
-        logger.debug("Initializing frame")
         HDR_NUM_BYTES = 1280
         self.hdr = frame_binary[0: HDR_NUM_BYTES]
         self.sync_word = self.hdr[0:4]
@@ -34,6 +33,7 @@ class Frame:
         self.os_time = int.from_bytes(self.hdr[930:938], byteorder="little", signed=False)
         self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
         self.coadd_mode = self.hdr[1010] & 0x01
+        logger.debug(f"Initialized frame: {self}")
 
     def __repr__(self):
         repr = "<Frame: sync_word={} data_size={} frame_count={} compression_flag={} processed_flag={} dcid={} ".format(
