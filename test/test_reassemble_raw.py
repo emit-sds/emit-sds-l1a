@@ -28,7 +28,8 @@ def test_reassemble_raw():
            "--constants_path", constants_txt,
            "--init_data_path", init_data_bin,
            "--out_dir", out_dir,
-           "--log_path", log_path]
+           "--log_path", log_path,
+           "--level", "DEBUG"]
 
     output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
     if output.returncode != 0:

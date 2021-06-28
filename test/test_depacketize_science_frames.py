@@ -16,13 +16,14 @@ def test_depacketize_science_frames():
     data_dir = os.path.join(test_dir, "data")
     repo_dir = os.path.dirname(test_dir)
     depacketize_exe = os.path.join(repo_dir, "depacketize_science_frames.py")
-    stream_path = os.path.join(data_dir, "ccsds", "0004_00_ccsds.bin")
+    stream_path = os.path.join(data_dir, "ccsds", "0014_00_ccsds.bin")
     out_dir = os.path.join(test_dir, "out_depacketize_science_frames")
     log_path = os.path.join(out_dir, "test_run.log")
 
     cmd = ["python", depacketize_exe, stream_path,
            "--out_dir", out_dir,
-           "--log_path", log_path]
+           "--log_path", log_path,
+           "--level", "DEBUG"]
 
     output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
     if output.returncode != 0:
