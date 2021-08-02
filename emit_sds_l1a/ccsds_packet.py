@@ -13,8 +13,6 @@ logger = logging.getLogger("emit-sds-l1a")
 CCSDS_PKT_SEC_COUNT_MOD = 16384
 HDR_NUM_BYTES = 6
 SEC_HDR_LEN = 10
-MAX_PKT_DATA_FIELD = 65536
-MAX_USER_DATA_FIELD = MAX_PKT_DATA_FIELD - SEC_HDR_LEN
 
 
 class SciencePacketProcessingException(Exception):
@@ -31,6 +29,13 @@ class CCSDSPacket:
             self.hdr_data = kwargs.get("hdr_data", bytearray(6))
             self._parse_header(self.hdr_data)
             self.body = kwargs.get("body", bytearray())
+
+    @classmethod
+    def next_psc(cls, cur_psc):
+        if isinstance(cur_psc, CCSDSPacket):
+            cur_psc = cur_psc.pkt_seq_cnt
+
+        return (cur_psc + 1) % cls.CCSDS_PKT_SEC_COUNT_MOD
 
     def _parse_header(self, hdr):
         """"""
@@ -83,6 +88,7 @@ class CCSDSPacket:
     @property
     def data(self):
         if self.body:
+            # TODO: Do I need to account for CRC32 here?
             return self.body[SEC_HDR_LEN:]
         else:
             return None
@@ -130,18 +136,27 @@ class SciencePacketProcessor:
         while True:
             pkt = None
             if self._pkt_partial:
+                # Look for sync word in partial packet if it exists
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, self._pkt_partial.data)
                 if index is not None:
+                    # If sync word found, use partial packet as start packet and reset to None.
+                    # No need to read a new packet in this case.
                     pkt = self._pkt_partial
                     self._pkt_partial = None
             if not pkt:
+                # If sync word not found in partial packet, read the next packet
                 pkt = self._read_next_packet()
                 if self._pkt_partial:
+                    # TODO: Check next_psc and throw away partial if mismatch
+                    # Assign partial packet's data to beginning of pkt and reset to None.
+                    # Sync word may span partial packet and next packet
                     pkt.data = self._pkt_partial.data + pkt.data
                     self._pkt_partial = None
+            # Having taken care of partial packet, look for sync word again
             index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
             if index is not None:
                 logger.debug(f"Found sync word at index {index}")
+                # Remove data before sync word so packet data starts at the beginning of the frame
                 pkt.data = pkt.data[index:]
                 # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
                 if len(pkt.data) < self.MIN_PROCABLE_PKT_LEN:
@@ -150,10 +165,25 @@ class SciencePacketProcessor:
                         f"Reading and melding into next packet. Size: {len(pkt.data)}"
                     )
                     next_pkt = self._read_next_packet()
+                    # TODO: Again look for PSC mismatch
                     next_pkt.data = pkt.data + next_pkt.data
                     pkt = next_pkt
 
                 return pkt
+
+            else:
+                logger.debug(
+                    (
+                        "Attempting to read EDP start pack from packet stream "
+                        f"but could not locate header sync word. Skipping packet {pkt}"
+                    )
+                )
+
+                # Save the last chunk of packet data equal to the length of
+                # the HEADER sync word so we can handle the sync word being
+                # split across EngineeringDataPacket's Packets.
+                self._pkt_partial = pkt
+                self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
@@ -172,7 +202,7 @@ class SciencePacketProcessor:
             else:
                 # Create a partial and read in short frame
                 partial_body = start_pkt.data[expected_frame_len:]
-                partial = CCSDSPacket(hdr_data=start_pkt.hdr_data, body=start_pkt.body[:10] + partial_body)
+                partial = CCSDSPacket(hdr_data=start_pkt.hdr_data, body=start_pkt.body[:SEC_HDR_LEN] + partial_body)
                 self._pkt_partial = partial
 
                 start_pkt.data = start_pkt.data[:expected_frame_len]
@@ -187,26 +217,31 @@ class SciencePacketProcessor:
             # TODO: What about encountering sync word too soon?  Assume we fill in missing packets for now
             if data_accum_len == expected_frame_len:
                 # We're done
-                logger.debug("Case 1")
+                logger.debug("Case 1 - accumulated data length equals expected frame length")
                 return pkt_parts
             elif expected_frame_len < data_accum_len < expected_frame_len + 4:
                 # Sync word may span packets, so create partial based on expected length
-                logger.debug("Case 2")
+                logger.debug("Case 2 - accumulated data length exceeds expected length but is less than expected"
+                             "length + 4. Need to create partial packet before returning packet parts.")
+                # Create new partial
                 remaining_bytes = data_accum_len - expected_frame_len
                 partial_body = pkt_parts[-1].data[-remaining_bytes:]
-                partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data, body=pkt_parts[-1].body[:10] + partial_body)
+                partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data,
+                                      body=pkt_parts[-1].body[:SEC_HDR_LEN] + partial_body)
                 self._pkt_partial = partial
 
+                # Remove extra data from last packet in packet parts
                 pkt_parts[-1].data = pkt_parts[-1].data[:-remaining_bytes]
                 return pkt_parts
             elif data_accum_len >= expected_frame_len + 4:
                 # Look for next sync word and throw exception if not found
-                logger.debug("Case 3")
+                logger.debug("Case 3 - accumulated data length exceeds expected length + 4. Look for next sync word.")
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt_parts[-1].data)
                 if index is not None:
                     # Create partial first and then remove extra data from pkt_parts
                     partial_body = pkt_parts[-1].data[index:]
-                    partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data, body=pkt_parts[-1].body[:10] + partial_body)
+                    partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data,
+                                          body=pkt_parts[-1].body[:SEC_HDR_LEN] + partial_body)
                     self._pkt_partial = partial
 
                     pkt_parts[-1].data = pkt_parts[-1].data[:index]
@@ -220,6 +255,7 @@ class SciencePacketProcessor:
                     raise SciencePacketProcessingException(msg)
 
             pkt = self._read_next_packet()
+            # TODO: Check PSC mismatch
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
