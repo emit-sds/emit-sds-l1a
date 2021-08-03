@@ -95,8 +95,7 @@ class CCSDSPacket:
     def is_seq_start_pkt(self):
         """"""
         return (
-            self.seq_flags == self.SeqFlags.FIRST_SEG.value
-            or self.seq_flags == self.SeqFlags.UNSEG.value
+            self.seq_flags == self.SeqFlags.FIRST_SEG.value or self.seq_flags == self.SeqFlags.UNSEG.value
         )
 
     @property
@@ -188,8 +187,8 @@ class ScienceDataPacket(CCSDSPacket):
     @property
     def is_valid(self):
         """"""
-        crc = int.from_bytes(self.body[-self.CRC_LEN :], "big")
-        calc_crc = zlib.crc32(self.body[self.SEC_HDR_LEN : -self.CRC_LEN])
+        crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
+        calc_crc = zlib.crc32(self.body[self.SEC_HDR_LEN: -self.CRC_LEN])
         return calc_crc == crc
 
     @property
@@ -204,9 +203,7 @@ class ScienceDataPacket(CCSDSPacket):
     def is_header_packet(self):
         stat = False
         if self.data and len(self.data) >= 4:
-            stat = (
-                    int.from_bytes(self.data[:4], byteorder="big") == self.HEADER_SYNC_WORD
-            )
+            stat = (int.from_bytes(self.data[:4], byteorder="big") == self.HEADER_SYNC_WORD)
         return stat
 
     @property
