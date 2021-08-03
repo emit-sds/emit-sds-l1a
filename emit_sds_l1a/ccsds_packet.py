@@ -7,12 +7,11 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 import itertools
 import logging
 import sys
+import zlib
+
+from enum import Enum
 
 logger = logging.getLogger("emit-sds-l1a")
-
-CCSDS_PKT_SEC_COUNT_MOD = 16384
-HDR_NUM_BYTES = 6
-SEC_HDR_LEN = 10
 
 
 class SciencePacketProcessingException(Exception):
@@ -20,13 +19,37 @@ class SciencePacketProcessingException(Exception):
 
 
 class CCSDSPacket:
+    """CCSDS Space Packet Object
+    Provides an abstraction of a CCSDS Space Packet to simplify handling CCSDS
+    packet data. The CCSDS Packet object will automatically read the necessary
+    bytes for header and data if a stream is provided on initialization.
+    """
+
+    CCSDS_PKT_SEC_COUNT_MOD = 16384
+
+    class SeqFlags(Enum):
+        CONT_SEG = 0
+        FIRST_SEG = 1
+        LAST_SEG = 2
+        UNSEG = 3
 
     def __init__(self, stream=None, **kwargs):
-        logger.debug(f"Initializing CCSSDS Packet")
+        """Inititialize CCSDSPacket
+        :param stream: A file object from which to read data (default: None)
+        :type stream: file object
+        :param kwargs:
+            - **hdr_data**: A bytes-like object containing 6-bytes
+              of data that should be processed as a CCSDS Packet header.
+            - **body**: The packet data field for the CCSDS
+              packet. For consistency, this should be the length specified in
+              the hdr_data per the CCSDS Packet format. However, this isn't
+              enforced if these kwargs are used.
+        """
         if stream:
             self.read(stream)
         else:
-            self.hdr_data = kwargs.get("hdr_data", bytearray(6))
+            d = bytearray(b"\x00\x00\x00\x00\x00\x00")
+            self.hdr_data = kwargs.get("hdr_data", d)
             self._parse_header(self.hdr_data)
             self.body = kwargs.get("body", bytearray())
 
@@ -37,10 +60,15 @@ class CCSDSPacket:
 
         return (cur_psc + 1) % cls.CCSDS_PKT_SEC_COUNT_MOD
 
+    @classmethod
+    def prev_psc(cls, cur_psc):
+        if isinstance(cur_psc, CCSDSPacket):
+            cur_psc = cur_psc.pkt_seq_cnt
+
+        return (cur_psc - 1) % cls.CCSDS_PKT_SEC_COUNT_MOD
+
     def _parse_header(self, hdr):
         """"""
-        logger.debug("primary header: " + str([bin(hdr[i])[2:].zfill(8) for i in range(HDR_NUM_BYTES)]))
-        self.HEADER_SYNC_WORD = 0x81FFFF81
         self.pkt_ver_num = (hdr[0] & 0xE0) >> 5
         self.pkt_type = (hdr[0] & 0x10) >> 4
         self.sec_hdr_flag = (hdr[0] & 0x08) >> 3
@@ -50,7 +78,7 @@ class CCSDSPacket:
         self.pkt_data_len = int.from_bytes(hdr[4:6], "big")
 
     def read(self, stream):
-        """ Read packet data from a stream
+        """Read packet data from a stream
         :param stream: A file object from which to read data
         :type stream: file object
         """
@@ -62,14 +90,122 @@ class CCSDSPacket:
         # Packet Data Length is expressed as "number of packets in
         # packet data field minus 1"
         self.body = stream.read(self.pkt_data_len + 1)
-        # self.data = self.body[SEC_HDR_LEN:]
+
+    @property
+    def is_seq_start_pkt(self):
+        """"""
+        return (
+            self.seq_flags == self.SeqFlags.FIRST_SEG.value
+            or self.seq_flags == self.SeqFlags.UNSEG.value
+        )
+
+    @property
+    def size(self):
+        return len(self.hdr_data) + len(self.body)
+
+    def __repr__(self):
+        return "<CCSDSPacket: apid={} pkt_seq_cnt={} pkt_data_len={}".format(
+            self.apid, self.pkt_seq_cnt, self.pkt_data_len
+        )
+
+
+class ScienceDataPacket(CCSDSPacket):
+    """Science Data Packet
+    A sub-class of CCSDSPacket to add functionality helpful when processing
+    EMIT Ethernet Engineering Data Packets.
+    """
+
+    HEADER_SYNC_WORD = 0x81FFFF81
+    PRIMARY_HDR_LEN = 6
+    SEC_HDR_LEN = 11
+    CRC_LEN = 4
+
+    def __init__(self, stream=None, **kwargs):
+        """Inititialize EngineeringDataPacket
+        Arguments:
+            stream - A file object from which to read data (default: None)
+        Keyword Arguments:
+            - **hdr_data**: A bytes-like object containing 6-bytes
+              of data that should be processed as a CCSDS Packet header.
+            - **body**: The packet data field for the CCSDS
+              packet. For consistency, this should be the length specified in
+              the hdr_data per the CCSDS Packet format. However, this isn't
+              enforced if these kwargs are used.
+        """
+        super(ScienceDataPacket, self).__init__(stream=stream, **kwargs)
+        logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
+
+    @property
+    def data(self):
+        if self.body:
+            return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+        else:
+            return None
+
+    @data.setter
+    def data(self, data):
+        self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
+
+    @property
+    def course_time(self):
+        t = -1
+        if len(self.body) >= 4:
+            t = int.from_bytes(self.body[:4], "big")
+        else:
+            logging.error(
+                f"Insufficient data length {len(self.body)} to extract course time "
+                f"from EngineeringDataPacket. Returning default value: {t}"
+            )
+
+        return t
+
+    @property
+    def fine_time(self):
+        t = -1
+        if len(self.body) >= 5:
+            t = self.body[4]
+        else:
+            logging.error(
+                f"Insufficient data length {len(self.body)} to extract fine time "
+                f"from EngineeringDataPacket. Returning default value: {t}"
+            )
+
+        return t
+
+    @property
+    def subheader_id(self):
+        shid = -1
+        if len(self.body) >= 11:
+            shid = self.body[10]
+        else:
+            logging.error(
+                f"Insufficient data length {len(self.body)} to extract subheader id "
+                f"from EngineeringDataPacket. Returning default value: {shid}"
+            )
+
+        return shid
+
+    @property
+    def is_valid(self):
+        """"""
+        crc = int.from_bytes(self.body[-self.CRC_LEN :], "big")
+        calc_crc = zlib.crc32(self.body[self.SEC_HDR_LEN : -self.CRC_LEN])
+        return calc_crc == crc
+
+    @property
+    def payload_data(self):
+        """"""
+        if len(self.body) >= self.SEC_HDR_LEN + self.CRC_LEN:
+            return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+        else:
+            return bytearray()
 
     @property
     def is_header_packet(self):
         stat = False
         if self.data and len(self.data) >= 4:
             stat = (
-                int.from_bytes(self.data[:4], byteorder="big") == self.HEADER_SYNC_WORD
+                    int.from_bytes(self.data[:4], byteorder="big") == self.HEADER_SYNC_WORD
             )
         return stat
 
@@ -80,35 +216,27 @@ class CCSDSPacket:
             length = int.from_bytes(self.data[4:8], byteorder="little")
         else:
             logger.error(
-                f"EngineeringDataPacket.product_length is returning {length}. "
+                f"ScienceDataPacket.product_length is returning {length}. "
                 f"Is Header Pkt: {self.is_header_packet} | len: {len(self.body)}"
             )
         return length
 
-    @property
-    def data(self):
-        if self.body:
-            # TODO: Do I need to account for CRC32 here?
-            return self.body[SEC_HDR_LEN:]
-        else:
-            return None
-
-    @data.setter
-    def data(self, data):
-        self.body = self.body[: SEC_HDR_LEN] + data
-
     def __repr__(self):
-        return "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_seq_cnt={} pkt_data_len={}".format(
-            self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_seq_cnt, self.pkt_data_len
-        )
+        pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_seq_cnt={} pkt_data_len={} ".format(
+            self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_seq_cnt, self.pkt_data_len)
+        pkt_str += "course_time={} fine_time{}>".format(self.course_time, self.fine_time)
+        return pkt_str
 
 
 class SciencePacketProcessor:
 
+    HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
+    SEC_HDR_LEN = 11
+    MIN_PROCABLE_PKT_LEN = 8
+    CRC_LEN = 4
+
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
-        self.HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
-        self.MIN_PROCABLE_PKT_LEN = 8
         self.stream = open(stream_path, "rb")
         self._pkt_partial = None
 
@@ -128,7 +256,7 @@ class SciencePacketProcessor:
                 sys.exit()
 
     def _read_next_packet(self):
-        pkt = CCSDSPacket(stream=self.stream)
+        pkt = ScienceDataPacket(stream=self.stream)
         logger.debug(pkt)
         return pkt
 
@@ -191,6 +319,7 @@ class SciencePacketProcessor:
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
         # Handle case where frame data is less than current packet data size
         if expected_frame_len < len(start_pkt.data):
+            # TODO: Not sure I need to check for index here...?
             # Check for next sync word in this segment before we read it
             index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, start_pkt.data[4:expected_frame_len])
             if index is not None:
@@ -200,9 +329,12 @@ class SciencePacketProcessor:
                 )
                 raise SciencePacketProcessingException(msg)
             else:
-                # Create a partial and read in short frame
-                partial_body = start_pkt.data[expected_frame_len:]
-                partial = CCSDSPacket(hdr_data=start_pkt.hdr_data, body=start_pkt.body[:SEC_HDR_LEN] + partial_body)
+                # Create a partial and then read in short frame
+                partial_data = start_pkt.data[expected_frame_len:]
+                partial = ScienceDataPacket(
+                    hdr_data=start_pkt.hdr_data,
+                    body=start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
+                )
                 self._pkt_partial = partial
 
                 start_pkt.data = start_pkt.data[:expected_frame_len]
@@ -225,9 +357,11 @@ class SciencePacketProcessor:
                              "length + 4. Need to create partial packet before returning packet parts.")
                 # Create new partial
                 remaining_bytes = data_accum_len - expected_frame_len
-                partial_body = pkt_parts[-1].data[-remaining_bytes:]
-                partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data,
-                                      body=pkt_parts[-1].body[:SEC_HDR_LEN] + partial_body)
+                partial_data = pkt_parts[-1].data[-remaining_bytes:]
+                partial = ScienceDataPacket(
+                    hdr_data=pkt_parts[-1].hdr_data,
+                    body=pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
+                )
                 self._pkt_partial = partial
 
                 # Remove extra data from last packet in packet parts
@@ -239,9 +373,11 @@ class SciencePacketProcessor:
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt_parts[-1].data)
                 if index is not None:
                     # Create partial first and then remove extra data from pkt_parts
-                    partial_body = pkt_parts[-1].data[index:]
-                    partial = CCSDSPacket(hdr_data=pkt_parts[-1].hdr_data,
-                                          body=pkt_parts[-1].body[:SEC_HDR_LEN] + partial_body)
+                    partial_data = pkt_parts[-1].data[index:]
+                    partial = ScienceDataPacket(
+                        hdr_data=pkt_parts[-1].hdr_data,
+                        body=pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
+                    )
                     self._pkt_partial = partial
 
                     pkt_parts[-1].data = pkt_parts[-1].data[:index]
@@ -252,6 +388,7 @@ class SciencePacketProcessor:
                         "Read processed data length is > expected frame product type length "
                         f"failed. Read data len: {data_accum_len}, Exp len: {expected_frame_len}."
                     )
+                    # TODO: Just log this and move on?
                     raise SciencePacketProcessingException(msg)
 
             pkt = self._read_next_packet()
