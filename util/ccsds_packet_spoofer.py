@@ -7,8 +7,9 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 import logging
 import os
 import sys
+import time
 
-logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.INFO)
+logging.basicConfig(filename='ccsds_spoofer.log', format="%(asctime)s %(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger("emit-sds-l10")
 
 CCSDS_PKT_SEC_COUNT_MOD = 16384
@@ -35,6 +36,8 @@ class CCSDSPacketSpoofer:
         self.pkt_data_len = SEC_HDR_LEN + len(data) + CRC_LEN - 1
         self.hdr = self._construct_hdr()
         self.body = self._construct_body()
+        self.course_time = int.from_bytes(self.body[:4], "big")
+        self.fine_time = self.body[4]
 
     def _construct_hdr(self):
         logger.debug("Constructing hdr")
@@ -61,6 +64,11 @@ class CCSDSPacketSpoofer:
     def _construct_body(self):
         logger.debug("Constructing body")
         sec_hdr = bytearray(SEC_HDR_LEN)
+        # Add course and fine time
+        course_time = int(time.time())
+        fine_time = int((time.time() % 1) * 256)
+        sec_hdr[:4] = course_time.to_bytes(4, byteorder="big", signed=False)
+        sec_hdr[4] = fine_time
         crc = bytearray(CRC_LEN)
         return sec_hdr + self.data + crc
 
@@ -68,8 +76,15 @@ class CCSDSPacketSpoofer:
         logger.debug("Returning packet as bytes")
         return self.hdr + self.body
 
+    def __repr__(self):
+        pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
+            self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
+        pkt_str += "course_time={} fine_time{} pkt_seq_cnt={}>".format(self.course_time, self.fine_time, self.psc)
+        return pkt_str
+
 
 data_path = sys.argv[1]
+
 out_path = data_path + "_ccsds.bin"
 # out_path = os.path.join(os.path.dirname(data_path), "ccsds_stream.bin")
 with open(data_path, "rb") as f:
@@ -78,9 +93,13 @@ with open(data_path, "rb") as f:
     ccsds_stream = bytearray()
     while len(data) > 0:
         packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
         ccsds_stream += packet.get_packet_bytes()
         # Increment for next loop
         data = f.read(MAX_PAYLOAD_LEN)
-        psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+        if psc != 10:
+            psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+        else:
+            psc = (psc + 2) % CCSDS_PKT_SEC_COUNT_MOD
     with open(out_path, "wb") as out_file:
         out_file.write(ccsds_stream)

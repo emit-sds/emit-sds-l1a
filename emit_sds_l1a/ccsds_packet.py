@@ -235,6 +235,7 @@ class SciencePacketProcessor:
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
         self.stream = open(stream_path, "rb")
+        self.cur_psc = -1
         self._pkt_partial = None
 
     def read_frame(self):
@@ -246,6 +247,8 @@ class SciencePacketProcessor:
                 start_pkt = self._read_frame_start_packet()
                 pkt_parts = self._read_pkt_parts(start_pkt)
                 return self._reconstruct_frame(pkt_parts)
+            except SciencePacketProcessingException as e:
+                logger.warning(e)
             except EOFError:
                 logger.info(
                     "Received EOFError when reading files. No more data to process"
@@ -254,8 +257,25 @@ class SciencePacketProcessor:
 
     def _read_next_packet(self):
         pkt = ScienceDataPacket(stream=self.stream)
-        logger.debug(pkt)
-        return pkt
+        if self.cur_psc < 0:
+            # Initialize self.cur_psc and return packet
+            self.cur_psc = pkt.pkt_seq_cnt
+            logger.debug(pkt)
+            return pkt
+        else:
+            # Get next psc and compare
+            next_psc = CCSDSPacket.next_psc(self.cur_psc)
+            if next_psc != pkt.pkt_seq_cnt:
+                # PSC mismatch - reset cur psc and remove any partial packet
+                self.cur_psc = -1
+                self._pkt_partial = None
+                msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
+                raise SciencePacketProcessingException(msg)
+            else:
+                # Looks good, update self.cur_psc and return next packet
+                self.cur_psc = pkt.pkt_seq_cnt
+                logger.debug(pkt)
+                return pkt
 
     def _read_frame_start_packet(self):
         while True:
@@ -343,7 +363,6 @@ class SciencePacketProcessor:
         pkt_parts = [start_pkt]
 
         while True:
-            # TODO: What about encountering sync word too soon?  Assume we fill in missing packets for now
             if data_accum_len == expected_frame_len:
                 # We're done
                 logger.debug("Case 1 - accumulated data length equals expected frame length")
@@ -388,8 +407,10 @@ class SciencePacketProcessor:
                     # TODO: Just log this and move on?
                     raise SciencePacketProcessingException(msg)
 
-            pkt = self._read_next_packet()
-            # TODO: Check PSC mismatch
+            try:
+                pkt = self._read_next_packet()
+            except SciencePacketProcessingException as e:
+
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
