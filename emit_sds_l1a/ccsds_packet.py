@@ -10,6 +10,7 @@ import sys
 import zlib
 
 from enum import Enum
+from sortedcontainers import SortedDict
 
 logger = logging.getLogger("emit-sds-l1a")
 
@@ -235,17 +236,20 @@ class SciencePacketProcessor:
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
         self.stream = open(stream_path, "rb")
-        self.cur_psc = -1
+        self._cur_psc = -1
+        self._cur_coarse = -1
+        self._cur_fine = -1
+        self._processed_pkts = SortedDict()
         self._pkt_partial = None
 
     def read_frame(self):
         # Read a science frame from the stream
-        logger.debug("Beginning science frame read")
         while True:
             try:
-                # TODO: How to handle missing packets and overlap packets (already read)
+                logger.info(f"READ FRAME START")
                 start_pkt = self._read_frame_start_packet()
                 pkt_parts = self._read_pkt_parts(start_pkt)
+                logger.info(f"READ FRAME END")
                 return self._reconstruct_frame(pkt_parts)
             except SciencePacketProcessingException as e:
                 logger.warning(e)
@@ -256,79 +260,107 @@ class SciencePacketProcessor:
                 sys.exit()
 
     def _read_next_packet(self):
-        pkt = ScienceDataPacket(stream=self.stream)
-        if self.cur_psc < 0:
-            # Initialize self.cur_psc and return packet
-            self.cur_psc = pkt.pkt_seq_cnt
-            logger.debug(pkt)
-            return pkt
-        else:
-            # Get next psc and compare
-            next_psc = CCSDSPacket.next_psc(self.cur_psc)
-            if next_psc != pkt.pkt_seq_cnt:
+        while True:
+            pkt = ScienceDataPacket(stream=self.stream)
+            pkt_hash = str(pkt.course_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
+
+            # Handle the case where this is the first packet read
+            if self._cur_psc < 0:
+                # Initialize self.cur_psc and return packet
+                self._cur_psc = pkt.pkt_seq_cnt
+                self._cur_coarse = pkt.course_time
+                self._cur_fine = pkt.fine_time
+                self._processed_pkts[pkt_hash] = True
+                return pkt
+
+            # Get next psc and compare time keys
+            next_psc = CCSDSPacket.next_psc(self._cur_psc)
+            pkt_time_key = str(pkt.course_time).zfill(10) + str(pkt.fine_time).zfill(3)
+            cur_time_key = str(self._cur_coarse).zfill(10) + str(self._cur_fine).zfill(3)
+
+            # Handle the happy case when next_psc matches the read packet and the time keys are in order.
+            if pkt_time_key >= cur_time_key and pkt.pkt_seq_cnt == next_psc:
+                self._cur_psc = pkt.pkt_seq_cnt
+                self._cur_coarse = pkt.course_time
+                self._cur_fine = pkt.fine_time
+                self._processed_pkts[pkt_hash] = True
+                return pkt
+
+            # Handle the case where the packet has been seen before (this would happen in an overlap)
+            if pkt_hash in self._processed_pkts:
+                logger.info(f"Next packet read with hash ({pkt_hash}) has been seen before. Skipping...")
+                continue
+
+            # If above cases fail, then this must be a PSC mismatch.
+            # NOTE: This assumes that the size of the overlap is less than the size of a frame
+            if pkt.pkt_seq_cnt != next_psc:
                 # PSC mismatch - reset cur psc and remove any partial packet
-                self.cur_psc = -1
-                self._pkt_partial = None
+                self._cur_psc = pkt.pkt_seq_cnt
+                self._cur_coarse = pkt.course_time
+                self._cur_fine = pkt.fine_time
+                self._processed_pkts[pkt_hash] = True
+                self._pkt_partial = pkt
                 msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
                 raise SciencePacketProcessingException(msg)
-            else:
-                # Looks good, update self.cur_psc and return next packet
-                self.cur_psc = pkt.pkt_seq_cnt
-                logger.debug(pkt)
-                return pkt
 
     def _read_frame_start_packet(self):
         while True:
-            pkt = None
-            if self._pkt_partial:
-                # Look for sync word in partial packet if it exists
-                index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, self._pkt_partial.data)
-                if index is not None:
-                    # If sync word found, use partial packet as start packet and reset to None.
-                    # No need to read a new packet in this case.
-                    pkt = self._pkt_partial
-                    self._pkt_partial = None
-            if not pkt:
-                # If sync word not found in partial packet, read the next packet
-                pkt = self._read_next_packet()
+            try:
+                pkt = None
+
+                # Look for index in partial packet first and read next packet if not found
                 if self._pkt_partial:
-                    # TODO: Check next_psc and throw away partial if mismatch
-                    # Assign partial packet's data to beginning of pkt and reset to None.
-                    # Sync word may span partial packet and next packet
-                    pkt.data = self._pkt_partial.data + pkt.data
-                    self._pkt_partial = None
-            # Having taken care of partial packet, look for sync word again
-            index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
-            if index is not None:
-                logger.debug(f"Found sync word at index {index}")
-                # Remove data before sync word so packet data starts at the beginning of the frame
-                pkt.data = pkt.data[index:]
-                # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
-                if len(pkt.data) < self.MIN_PROCABLE_PKT_LEN:
-                    logger.debug(
-                        "Located HEADER packet is too small for further processing. "
-                        f"Reading and melding into next packet. Size: {len(pkt.data)}"
+                    # Look for sync word in partial packet if it exists
+                    index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, self._pkt_partial.data)
+                    if index is not None:
+                        # If sync word found, use partial packet as start packet and reset to None.
+                        # No need to read a new packet in this case.
+                        pkt = self._pkt_partial
+                        self._pkt_partial = None
+
+                # If sync word not found in partial packet, read the next packet
+                if not pkt:
+                    pkt = self._read_next_packet()
+                    if self._pkt_partial:
+                        # Assign partial packet's data to beginning of pkt and reset to None.
+                        # Sync word may span partial packet and next packet
+                        pkt.data = self._pkt_partial.data + pkt.data
+                        self._pkt_partial = None
+
+                # Having taken care of partial packet, look for sync word again
+                index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
+                if index is not None:
+                    # If sync word is found, check minimum processable length and read next packet if needed
+                    logger.info(f"Found sync word at index {index} in packet {pkt}")
+                    # Remove data before sync word so packet data starts at the beginning of the frame
+                    pkt.data = pkt.data[index:]
+                    # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
+                    if len(pkt.data) < self.MIN_PROCABLE_PKT_LEN:
+                        logger.info(
+                            "Located HEADER packet is too small for further processing. "
+                            f"Reading and melding into next packet. Size: {len(pkt.data)}"
+                        )
+                        next_pkt = self._read_next_packet()
+                        next_pkt.data = pkt.data + next_pkt.data
+                        pkt = next_pkt
+
+                    return pkt
+
+                else:
+                    # Save the last chunk of packet data equal to the length of
+                    # the HEADER sync word so we can handle the sync word being
+                    # split across EngineeringDataPacket's Packets.
+                    logger.info(
+                        (
+                            "Attempting to read EDP start pack from packet stream "
+                            f"but could not locate header sync word. Skipping packet {pkt}"
+                        )
                     )
-                    next_pkt = self._read_next_packet()
-                    # TODO: Again look for PSC mismatch
-                    next_pkt.data = pkt.data + next_pkt.data
-                    pkt = next_pkt
-
-                return pkt
-
-            else:
-                logger.debug(
-                    (
-                        "Attempting to read EDP start pack from packet stream "
-                        f"but could not locate header sync word. Skipping packet {pkt}"
-                    )
-                )
-
-                # Save the last chunk of packet data equal to the length of
-                # the HEADER sync word so we can handle the sync word being
-                # split across EngineeringDataPacket's Packets.
-                self._pkt_partial = pkt
-                self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
+                    self._pkt_partial = pkt
+                    self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
+            except SciencePacketProcessingException as e:
+                logger.warning("While looking for frame start packet, encountered PSC mismatch.")
+                logger.warning(e)
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
@@ -410,7 +442,9 @@ class SciencePacketProcessor:
             try:
                 pkt = self._read_next_packet()
             except SciencePacketProcessingException as e:
-
+                logger.warning("While reading packet parts, encountered PSC mismatch.")
+                logger.warning(e)
+                return pkt_parts
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")

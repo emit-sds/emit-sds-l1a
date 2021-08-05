@@ -18,9 +18,6 @@ SEC_HDR_LEN = 11
 MAX_PAYLOAD_LEN = 1479
 CRC_LEN = 4
 
-MAX_PKT_DATA_FIELD = 65536
-MAX_USER_DATA_FIELD = MAX_PKT_DATA_FIELD - SEC_HDR_LEN
-
 
 class CCSDSPacketSpoofer:
 
@@ -84,9 +81,8 @@ class CCSDSPacketSpoofer:
 
 
 data_path = sys.argv[1]
-
 out_path = data_path + "_ccsds.bin"
-# out_path = os.path.join(os.path.dirname(data_path), "ccsds_stream.bin")
+
 with open(data_path, "rb") as f:
     psc = 0
     data = f.read(MAX_PAYLOAD_LEN)
@@ -97,9 +93,6 @@ with open(data_path, "rb") as f:
         ccsds_stream += packet.get_packet_bytes()
         # Increment for next loop
         data = f.read(MAX_PAYLOAD_LEN)
-        if psc != 10:
-            psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
-        else:
-            psc = (psc + 2) % CCSDS_PKT_SEC_COUNT_MOD
+        psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
     with open(out_path, "wb") as out_file:
         out_file.write(ccsds_stream)
