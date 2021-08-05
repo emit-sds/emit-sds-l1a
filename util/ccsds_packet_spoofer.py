@@ -5,9 +5,9 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
 
 import logging
-import os
 import sys
 import time
+import zlib
 
 logging.basicConfig(filename='ccsds_spoofer.log', format="%(asctime)s %(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger("emit-sds-l10")
@@ -66,7 +66,8 @@ class CCSDSPacketSpoofer:
         fine_time = int((time.time() % 1) * 256)
         sec_hdr[:4] = course_time.to_bytes(4, byteorder="big", signed=False)
         sec_hdr[4] = fine_time
-        crc = bytearray(CRC_LEN)
+        calc_crc = zlib.crc32(self.data)
+        crc = calc_crc.to_bytes(CRC_LEN, byteorder="big", signed=False)
         return sec_hdr + self.data + crc
 
     def get_packet_bytes(self):

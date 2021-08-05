@@ -41,9 +41,15 @@ def main():
     processor = SciencePacketProcessor(args.stream_path)
 
     while True:
-        frame_binary = processor.read_frame()
-        frame = Frame(frame_binary)
-        frame.save(args.out_dir)
+        try:
+            frame_binary = processor.read_frame()
+            frame = Frame(frame_binary)
+            frame.save(args.out_dir)
+        except EOFError:
+            break
+
+    report_path = os.path.join(args.out_dir, "depacketization_stats.txt")
+    processor.stats(out_file=report_path)
 
 
 if __name__ == '__main__':

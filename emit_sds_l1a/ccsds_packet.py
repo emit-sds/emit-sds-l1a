@@ -220,10 +220,77 @@ class ScienceDataPacket(CCSDSPacket):
         return length
 
     def __repr__(self):
-        pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_seq_cnt={} pkt_data_len={} ".format(
-            self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_seq_cnt, self.pkt_data_len)
-        pkt_str += "course_time={} fine_time{}>".format(self.course_time, self.fine_time)
+        pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
+            self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
+        pkt_str += "course_time={} fine_time{} pkt_seq_cnt={}>".format(
+            self.course_time, self.fine_time, self.pkt_seq_cnt)
         return pkt_str
+
+
+class SDPProcessingStats:
+    """Science Data Product Processing Stats
+    A class for tracking various stats associated with processing
+    Science Data Product Packets. Provides an API for marking
+    encountered issues and prints in a human-readable format when
+    when converted to a string.
+    """
+
+    def __init__(self):
+        self._stats = {
+            "ccsds_pkts_read": 0,
+            "pkt_seq_errors": 0,
+            "invalid_pkt_errors": 0,
+            "bytes_read": 0,
+            "missing_psc": [],
+            "invalid_psc": []
+        }
+
+    def ccsds_read(self, pkt):
+        self._stats["ccsds_pkts_read"] += 1
+        self._stats["bytes_read"] += pkt.size
+
+    def pkt_seq_err(self, current_pkt, expected_psc):
+        self._stats["pkt_seq_errors"] += 1
+
+        cur_course = current_pkt.course_time
+        cur_fine = current_pkt.fine_time
+        cur_psc = current_pkt.pkt_seq_cnt
+
+        # TODO: Add padding for alphabetical sort
+        if cur_psc > expected_psc:
+            for i in range(expected_psc, cur_psc):
+                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+        else:
+            for i in range(expected_psc, CCSDSPacket.CCSDS_PKT_SEC_COUNT_MOD):
+                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+
+            for i in range(cur_psc):
+                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+
+    def invalid_pkt(self, pkt):
+        self._stats["invalid_pkt_errors"] += 1
+        self._stats["invalid_psc"].append(f"{pkt.course_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
+
+    def __str__(self):
+        self._stats["missing_psc"].sort()
+        missing_pscs_str = "\n".join([i for i in self._stats["missing_psc"]])
+
+        self._stats["invalid_psc"].sort()
+        invalid_pscs_str = "\n".join([i for i in self._stats["invalid_psc"]])
+
+        return (
+            "SDP Processing Stats\n"
+            "--------------------\n\n"
+            f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
+            f"Total bytes read: {self._stats['bytes_read']}\n\n"
+            f"Total Invalid Packet Errors Encountered: {len(self._stats['invalid_psc'])}\n"
+            "Invalid Packet Values:\n"
+            f"{invalid_pscs_str}\n\n"
+            f"Packet Sequence Count Errors Encountered: {self._stats['pkt_seq_errors']}\n"
+            f"Total Missing Packet Sequence Count Values: {len(self._stats['missing_psc'])}\n"
+            "Missing Packet Sequence Values:\n"
+            f"{missing_pscs_str}\n"
+        )
 
 
 class SciencePacketProcessor:
@@ -241,6 +308,7 @@ class SciencePacketProcessor:
         self._cur_fine = -1
         self._processed_pkts = SortedDict()
         self._pkt_partial = None
+        self._stats = SDPProcessingStats()
 
     def read_frame(self):
         # Read a science frame from the stream
@@ -257,12 +325,20 @@ class SciencePacketProcessor:
                 logger.info(
                     "Received EOFError when reading files. No more data to process"
                 )
-                sys.exit()
+                raise EOFError
 
     def _read_next_packet(self):
         while True:
             pkt = ScienceDataPacket(stream=self.stream)
+            self._stats.ccsds_read(pkt)
             pkt_hash = str(pkt.course_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
+
+            # Handle case where packet is not valid
+            if not pkt.is_valid:
+                self._stats.invalid_pkt(pkt)
+                # Log the issue and skip packet, which should then result in PSC mismatch
+                logger.warning(f"Skipping next packet because it is invalid: {pkt}")
+                continue
 
             # Handle the case where this is the first packet read
             if self._cur_psc < 0:
@@ -288,13 +364,14 @@ class SciencePacketProcessor:
 
             # Handle the case where the packet has been seen before (this would happen in an overlap)
             if pkt_hash in self._processed_pkts:
-                logger.info(f"Next packet read with hash ({pkt_hash}) has been seen before. Skipping...")
+                logger.warning(f"Next packet read with hash ({pkt_hash}) has been seen before. Skipping...")
                 continue
 
             # If above cases fail, then this must be a PSC mismatch.
             # NOTE: This assumes that the size of the overlap is less than the size of a frame
             if pkt.pkt_seq_cnt != next_psc:
                 # PSC mismatch - reset cur psc and remove any partial packet
+                self._stats.pkt_seq_err(pkt, next_psc)
                 self._cur_psc = pkt.pkt_seq_cnt
                 self._cur_coarse = pkt.course_time
                 self._cur_fine = pkt.fine_time
@@ -442,8 +519,8 @@ class SciencePacketProcessor:
             try:
                 pkt = self._read_next_packet()
             except SciencePacketProcessingException as e:
-                logger.warning("While reading packet parts, encountered PSC mismatch.")
                 logger.warning(e)
+                logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
                 return pkt_parts
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
@@ -469,3 +546,15 @@ class SciencePacketProcessor:
                 break
 
         return index
+
+    def stats(self, out_file="sdp_stats.txt"):
+        """Output stats from processing data files
+        Arguments:
+            out_file: A file-like object to which stats will be printed.
+                (default: sys.stdout)
+            verbose: Flag for setting verbose output. Currently setting this True
+                only affects display of "Ignored" / Default data product stats.
+                (default: False)
+        """
+        with open (out_file, "w") as f:
+            f.write(str(self._stats))
