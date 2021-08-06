@@ -6,7 +6,6 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 
 import itertools
 import logging
-import sys
 import zlib
 
 from enum import Enum
@@ -15,7 +14,7 @@ from sortedcontainers import SortedDict
 logger = logging.getLogger("emit-sds-l1a")
 
 
-class SciencePacketProcessingException(Exception):
+class PSCMismatchException(Exception):
     pass
 
 
@@ -324,8 +323,6 @@ class SciencePacketProcessor:
                 pkt_parts = self._read_pkt_parts(start_pkt)
                 logger.info(f"READ FRAME END")
                 return self._reconstruct_frame(pkt_parts)
-            except SciencePacketProcessingException as e:
-                logger.warning(e)
             except EOFError:
                 logger.info(
                     "Received EOFError when reading files. No more data to process"
@@ -383,7 +380,7 @@ class SciencePacketProcessor:
                 self._processed_pkts[pkt_hash] = True
                 self._pkt_partial = pkt
                 msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
-                raise SciencePacketProcessingException(msg)
+                raise PSCMismatchException(msg)
 
     def _read_frame_start_packet(self):
         while True:
@@ -431,61 +428,53 @@ class SciencePacketProcessor:
                 else:
                     # Save the last chunk of packet data equal to the length of
                     # the HEADER sync word so we can handle the sync word being
-                    # split across EngineeringDataPacket's Packets.
-                    logger.warning(
-                        (
-                            "Attempting to read start packet "
-                            f"but could not locate header sync word. Skipping packet {pkt}"
-                        )
-                    )
+                    # split across packets.
+                    logger.warning("Unable to find header sync word. Skipping packet {pkt}")
                     self._pkt_partial = pkt
                     self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
-            except SciencePacketProcessingException as e:
-                logger.warning("While looking for frame start packet, encountered PSC mismatch.")
+
+            except PSCMismatchException as e:
                 logger.warning(e)
+                logger.warning("While looking for frame start packet, encountered PSC mismatch.")
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
         expected_frame_len = start_pkt.product_length + 1280
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
+
         # Handle case where frame data is less than current packet data size
         if expected_frame_len < len(start_pkt.data):
-            # TODO: Not sure I need to check for index here...?  Why would there be another sync word here?
-            # Check for next sync word in this segment before we read it
-            index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, start_pkt.data[4:expected_frame_len])
-            if index is not None:
-                msg = (
-                    "Found another instance of sync word while attempting to read frame smaller than packet length."
-                    f"Index found at: {index + 4}, Exp frame len: {expected_frame_len}."
-                )
-                raise SciencePacketProcessingException(msg)
-            else:
-                # Create a partial and then read in short frame
-                partial_data = start_pkt.data[expected_frame_len:]
-                partial = ScienceDataPacket(
-                    hdr_data=start_pkt.hdr_data,
-                    body=start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
-                )
-                self._pkt_partial = partial
+            # Create a partial and then read in short frame
+            partial_data = start_pkt.data[expected_frame_len:]
+            partial = ScienceDataPacket(
+                hdr_data=start_pkt.hdr_data,
+                body=start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
+            )
+            self._pkt_partial = partial
 
-                start_pkt.data = start_pkt.data[:expected_frame_len]
-                pkt_parts = [start_pkt]
-                return pkt_parts
+            start_pkt.data = start_pkt.data[:expected_frame_len]
+            pkt_parts = [start_pkt]
+            return pkt_parts
 
+        # If we need to read more packets, then track accumulated data length and continue reading until the
+        # accumulated data equals or exceeds the expected frame length
         data_accum_len = len(start_pkt.data)
         logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
         pkt_parts = [start_pkt]
 
         while True:
             if data_accum_len == expected_frame_len:
+
                 # We're done
-                logger.debug("Case 1 - accumulated data length equals expected frame length")
+                logger.debug("Case 1 - accumulated data length equals expected frame length. Returning packet parts.")
                 return pkt_parts
-            # TODO: Can I combine the next two blocks using the remaining bytes method?
-            elif expected_frame_len < data_accum_len < expected_frame_len + 4:
-                # Sync word may span packets, so create partial based on expected length
-                logger.debug("Case 2 - accumulated data length exceeds expected length but is less than expected"
-                             "length + 4. Need to create partial packet before returning packet parts.")
+
+            elif data_accum_len > expected_frame_len:
+
+                # We've read enough and must trim the last packet in the pkt_parts to the expected size.
+                # Also, Save the trimmed portion as a partial packet.
+                logger.debug("Case 2 - accumulated data length exceeds expected length. Trimming last packet to "
+                             "expected size and creating partial packet of remaining bytes.")
                 # Create new partial
                 remaining_bytes = data_accum_len - expected_frame_len
                 partial_data = pkt_parts[-1].data[-remaining_bytes:]
@@ -498,34 +487,11 @@ class SciencePacketProcessor:
                 # Remove extra data from last packet in packet parts
                 pkt_parts[-1].data = pkt_parts[-1].data[:-remaining_bytes]
                 return pkt_parts
-            elif data_accum_len >= expected_frame_len + 4:
-                # Look for next sync word and throw exception if not found
-                logger.debug("Case 3 - accumulated data length exceeds expected length + 4. Look for next sync word.")
-                index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt_parts[-1].data)
-                if index is not None:
-                    # Create partial first and then remove extra data from pkt_parts
-                    partial_data = pkt_parts[-1].data[index:]
-                    partial = ScienceDataPacket(
-                        hdr_data=pkt_parts[-1].hdr_data,
-                        body=pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
-                    )
-                    self._pkt_partial = partial
 
-                    pkt_parts[-1].data = pkt_parts[-1].data[:index]
-                    return pkt_parts
-
-                else:
-                # TODO: Just stop when get to end of data_accum_len
-                    msg = (
-                        "Read processed data length is > expected frame product type length "
-                        f"failed. Read data len: {data_accum_len}, Exp len: {expected_frame_len}."
-                    )
-                    # TODO: Just log this and move on?
-                    raise SciencePacketProcessingException(msg)
-
+            # If neither of the above end cases is met,  then read the next packet
             try:
                 pkt = self._read_next_packet()
-            except SciencePacketProcessingException as e:
+            except PSCMismatchException as e:
                 logger.warning(e)
                 logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
                 self._stats.truncated_frame()
@@ -559,7 +525,6 @@ class SciencePacketProcessor:
         """Output stats from processing data files
         Arguments:
             out_file: A file-like object to which stats will be printed.
-                (default: sys.stdout)
             verbose: Flag for setting verbose output. Currently setting this True
                 only affects display of "Ignored" / Default data product stats.
                 (default: False)
