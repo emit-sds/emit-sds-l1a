@@ -238,11 +238,12 @@ class SDPProcessingStats:
     def __init__(self):
         self._stats = {
             "ccsds_pkts_read": 0,
-            "pkt_seq_errors": 0,
-            "invalid_pkt_errors": 0,
             "bytes_read": 0,
-            "missing_psc": [],
-            "invalid_psc": []
+            "truncated_frame_errors": 0,
+            "invalid_pkt_errors": 0,
+            "invalid_psc": [],
+            "pkt_seq_errors": 0,
+            "missing_psc": []
         }
 
     def ccsds_read(self, pkt):
@@ -271,6 +272,9 @@ class SDPProcessingStats:
         self._stats["invalid_pkt_errors"] += 1
         self._stats["invalid_psc"].append(f"{pkt.course_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
 
+    def truncated_frame(self):
+        self._stats["truncated_frame_errors"] += 1
+
     def __str__(self):
         self._stats["missing_psc"].sort()
         missing_pscs_str = "\n".join([i for i in self._stats["missing_psc"]])
@@ -283,7 +287,8 @@ class SDPProcessingStats:
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
-            f"Total Invalid Packet Errors Encountered: {len(self._stats['invalid_psc'])}\n"
+            f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
+            f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
             f"{invalid_pscs_str}\n\n"
             f"Packet Sequence Count Errors Encountered: {self._stats['pkt_seq_errors']}\n"
@@ -427,9 +432,9 @@ class SciencePacketProcessor:
                     # Save the last chunk of packet data equal to the length of
                     # the HEADER sync word so we can handle the sync word being
                     # split across EngineeringDataPacket's Packets.
-                    logger.info(
+                    logger.warning(
                         (
-                            "Attempting to read EDP start pack from packet stream "
+                            "Attempting to read start packet "
                             f"but could not locate header sync word. Skipping packet {pkt}"
                         )
                     )
@@ -445,7 +450,7 @@ class SciencePacketProcessor:
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
         # Handle case where frame data is less than current packet data size
         if expected_frame_len < len(start_pkt.data):
-            # TODO: Not sure I need to check for index here...?
+            # TODO: Not sure I need to check for index here...?  Why would there be another sync word here?
             # Check for next sync word in this segment before we read it
             index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, start_pkt.data[4:expected_frame_len])
             if index is not None:
@@ -476,6 +481,7 @@ class SciencePacketProcessor:
                 # We're done
                 logger.debug("Case 1 - accumulated data length equals expected frame length")
                 return pkt_parts
+            # TODO: Can I combine the next two blocks using the remaining bytes method?
             elif expected_frame_len < data_accum_len < expected_frame_len + 4:
                 # Sync word may span packets, so create partial based on expected length
                 logger.debug("Case 2 - accumulated data length exceeds expected length but is less than expected"
@@ -509,6 +515,7 @@ class SciencePacketProcessor:
                     return pkt_parts
 
                 else:
+                # TODO: Just stop when get to end of data_accum_len
                     msg = (
                         "Read processed data length is > expected frame product type length "
                         f"failed. Read data len: {data_accum_len}, Exp len: {expected_frame_len}."
@@ -521,6 +528,7 @@ class SciencePacketProcessor:
             except SciencePacketProcessingException as e:
                 logger.warning(e)
                 logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
+                self._stats.truncated_frame()
                 return pkt_parts
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
