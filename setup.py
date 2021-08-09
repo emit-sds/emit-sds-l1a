@@ -28,6 +28,7 @@ setuptools.setup(
     ],
     python_requires=">=3",
     install_requires=[
+        "sortedcontainers>=2.4.0",
         "spectral>=0.21",
         "pytest>=6.2.1",
         "pytest-cov>=2.10.1",
