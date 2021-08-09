@@ -45,7 +45,7 @@ class Frame:
         return repr
 
     def save(self, out_dir):
-        fname = "_".join([str(self.dcid).zfill(4), str(self.frame_count).zfill(5),
+        fname = "_".join([str(self.dcid).zfill(10), str(self.frame_count).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
         logger.debug("Writing frame to path %s" % out_path)
