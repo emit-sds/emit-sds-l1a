@@ -529,5 +529,5 @@ class SciencePacketProcessor:
                 only affects display of "Ignored" / Default data product stats.
                 (default: False)
         """
-        with open (out_file, "w") as f:
+        with open(out_file, "w") as f:
             f.write(str(self._stats))
