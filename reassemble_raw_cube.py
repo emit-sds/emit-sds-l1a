@@ -49,20 +49,26 @@ def main():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    # Also, create a reassembly report
-    report_path = args.log_path.replace(".log", "_report.txt")
-    report_file = open(report_path, "w")
-    report_file.write("DECOMPRESSION RESULTS\n")
-    report_file.write("---------------------\n")
-
-    # Get frame paths and set up various lists to track frame parameters (num bands, processed, coadd mode)
+    # Get frame paths
     frame_paths = glob.glob(os.path.join(args.frames_dir, "*"))
     frame_paths.sort()
 
+    # Create a reassembly report
+    report_path = args.log_path.replace(".log", "_report.txt")
+    report_file = open(report_path, "w")
+    report_file.write("REASSEMBLY REPORT\n")
+    report_file.write("-----------------\n\n")
+    report_file.write(f"Input frames directory: {args.frames_dir}\n")
+    report_file.write(f"Total number of frames: {len(frame_paths)}\n")
+
+    # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
     num_bands_list = []
     processed_flag_list = []
     coadd_mode_list = []
+    failed_decompression_list = []
+    num_decompressed = 0
+    num_uncompressed = 0
 
     # Process frame headers and write out compressed data files
     for path in frame_paths:
@@ -81,19 +87,22 @@ def main():
             logger.info(f"Decompressing frame with command '{cmd_str}'")
             output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
 
-            # Write output to log and decompression report
-            decompression_output = output.stdout.decode("utf-8").replace("\\n", "\n").replace("\\t", "\t")
-            logger.info(decompression_output)
-            report_file.write(decompression_output)
+            # Write output to log
+            logger.info(output.stdout.decode("utf-8").replace("\\n", "\n").replace("\\t", "\t"))
 
             if output.returncode != 0:
-                logging.error(f"Failed to decompress frame with command '{cmd_str}'")
-                raise RuntimeError(output.stderr.decode("utf-8"))
+                logger.error(f"Failed to decompress frame with command '{cmd_str}'")
+                failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[1])
+                continue
+                # raise RuntimeError(output.stderr.decode("utf-8"))
+
+            num_decompressed += 1
+
         else:
             # Just copy the uncompressed frame and rename it
             logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_data_path}")
             shutil.copy2(path, uncomp_frame_path)
-            report_file.write(f"Frame {path} is uncompressed. No need to decompress.\n")
+            num_uncompressed += 1
 
         # Get some frame header details and write out uncompressed frame data section
         # TODO: Process frame header and create report?
@@ -111,6 +120,14 @@ def main():
         # Add uncompressed data path to list of raw_frame_paths to be reassembled
         frame_data_paths.append(uncomp_data_path)
 
+    # Update report with decompression stats
+    report_file.write(f"Number of frames decompressed successfully: {num_decompressed}\n")
+    report_file.write("List of frame numbers that failed decompression (if any):\n")
+    if len(failed_decompression_list) > 0:
+        report_file.write("\n".join(i for i in failed_decompression_list) + "\n")
+    report_file.write(f"\nNumber of frames not requiring decompression (compression flag set to 0): "
+                      f"{num_uncompressed}\n\n")
+
     # Check all frames have same number of bands
     for i in range(len(num_bands_list)):
         if num_bands_list[i] != num_bands_list[0]:
@@ -127,21 +144,20 @@ def main():
         if coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
-    report_file.write("\nREASSEMBLY RESULTS\n")
-    report_file.write("------------------\n\n")
-
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[1]) for path in frame_data_paths]
     seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
+
     report_file.write("List of missing frame numbers (if any):\n")
-    report_file.write("\n".join(str(i) for i in missing_frame_nums))
+    if len(missing_frame_nums) > 0:
+        report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
     acquisition_id = os.path.basename(frame_data_paths[0].split("_")[0])
     expected_frame_num = os.path.basename(frame_data_paths[0].split("_")[2])
-    for frame_num in missing_frame_nums:
-        frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num).zfill(5),
+    for frame_num_str in missing_frame_nums:
+        frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num_str).zfill(5),
                                                                     expected_frame_num, "6"])))
     frame_data_paths.sort()
 
@@ -169,7 +185,7 @@ def main():
     cloudy_frame_nums = []
     line = 0
     for path in frame_data_paths:
-        frame_num = int(os.path.basename(path).split(".")[0].split("_")[1])
+        frame_num_str = os.path.basename(path).split(".")[0].split("_")[1]
         status = int(os.path.basename(path).split(".")[0].split("_")[3])
         # Non-cloudy frames
         if status in (0, 1):
@@ -177,7 +193,7 @@ def main():
             output[line:line + 32, :, :] = frame[:, :, :].copy()
         # Cloudy frames
         if status in (4, 5):
-            cloudy_frame_nums.append(frame_num)
+            cloudy_frame_nums.append(frame_num_str)
             frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
                             dtype=np.uint16)
             output[line:line + 32, :, :] = frame[:, :, :].copy()
@@ -190,7 +206,8 @@ def main():
     del output
 
     report_file.write(f"\nList of cloudy frame numbers (if any):\n")
-    report_file.write("\n".join(str(i) for i in cloudy_frame_nums))
+    if len(cloudy_frame_nums) > 0:
+        report_file.write("\n".join(i for i in cloudy_frame_nums))
     report_file.close()
     logger.info("Done")
 
