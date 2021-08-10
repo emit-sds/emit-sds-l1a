@@ -19,7 +19,7 @@ def main():
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
     parser.add_argument("--out_dir", help="Path to output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
-    parser.add_argument("--log_path", help="Path to log file")
+    parser.add_argument("--log_path", help="Path to log file", default="depacketize_science_frames.log")
 
     args = parser.parse_args()
 
@@ -29,13 +29,13 @@ def main():
     # Set up console logging using root logger
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=args.level)
     logger = logging.getLogger("emit-sds-l1a")
+
     # Set up file handler logging
-    if args.log_path is not None:
-        handler = logging.FileHandler(args.log_path)
-        handler.setLevel(args.level)
-        formatter = logging.Formatter("%(asctime)s %(levelname)s [%(module)s]: %(message)s")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+    handler = logging.FileHandler(args.log_path)
+    handler.setLevel(args.level)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(module)s]: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     logger.info(f"Processing stream file {args.stream_path}")
     processor = SciencePacketProcessor(args.stream_path)
@@ -48,7 +48,7 @@ def main():
         except EOFError:
             break
 
-    report_path = os.path.join(args.out_dir, "depacketization_stats.txt")
+    report_path = args.log_path.replace(".log", "_report.txt")
     processor.stats(out_file=report_path)
 
 

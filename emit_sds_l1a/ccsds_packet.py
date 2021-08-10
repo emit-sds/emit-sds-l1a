@@ -282,7 +282,7 @@ class SDPProcessingStats:
         invalid_pscs_str = "\n".join([i for i in self._stats["invalid_psc"]])
 
         return (
-            "SDP Processing Stats\n"
+            "SDP PROCESSING STATS\n"
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
@@ -293,7 +293,7 @@ class SDPProcessingStats:
             f"Packet Sequence Count Errors Encountered: {self._stats['pkt_seq_errors']}\n"
             f"Total Missing Packet Sequence Count Values: {len(self._stats['missing_psc'])}\n"
             "Missing Packet Sequence Values:\n"
-            f"{missing_pscs_str}\n"
+            f"{missing_pscs_str}\n\n"
         )
 
 
