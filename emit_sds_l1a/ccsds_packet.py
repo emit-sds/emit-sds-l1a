@@ -293,7 +293,7 @@ class SDPProcessingStats:
             f"Packet Sequence Count Errors Encountered: {self._stats['pkt_seq_errors']}\n"
             f"Total Missing Packet Sequence Count Values: {len(self._stats['missing_psc'])}\n"
             "Missing Packet Sequence Values:\n"
-            f"{missing_pscs_str}\n"
+            f"{missing_pscs_str}\n\n"
         )
 
 
