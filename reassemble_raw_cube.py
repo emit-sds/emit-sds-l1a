@@ -76,7 +76,7 @@ def main():
         with open(path, "rb") as f:
             frame_binary = f.read()
         frame = Frame(frame_binary)
-        uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".decomp")
+        uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".xio.decomp")
 
         # Decompress if compression flag is set, otherwise, just copy file
         if frame.compression_flag == 1:
@@ -105,7 +105,6 @@ def main():
             num_uncompressed += 1
 
         # Get some frame header details and write out uncompressed frame data section
-        # TODO: Process frame header and create report?
         with open(uncomp_frame_path, "rb") as f:
             uncomp_frame_binary = f.read()
         uncomp_frame = Frame(uncomp_frame_binary)
@@ -146,7 +145,8 @@ def main():
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[1]) for path in frame_data_paths]
-    seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
+    # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
+    seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[2])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
