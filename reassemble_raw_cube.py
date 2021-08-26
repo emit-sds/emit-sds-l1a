@@ -161,7 +161,7 @@ def main():
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
-    report_file.write(f"Total missing frames encountered: {len(missing_frame_nums)}\n")
+    report_file.write(f"\nTotal missing frames encountered: {len(missing_frame_nums)}\n")
     report_file.write("List of missing frame numbers (if any):\n")
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
