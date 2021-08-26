@@ -8,6 +8,8 @@ import argparse
 import logging
 import os
 
+from argparse import RawTextHelpFormatter
+
 from emit_sds_l1a.ccsds_packet import SciencePacketProcessor
 from emit_sds_l1a.frame import Frame
 
@@ -15,7 +17,14 @@ from emit_sds_l1a.frame import Frame
 def main():
 
     # Read in args
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Description: This script executes the depacketization portion of the L1A PGE.\n"
+                    "Operating Environment: Python 3.x. See setup.py file for specific dependencies.\n"
+                    "Outputs:\n"
+                    "    * List of frames named <DCID>_<frame_num>_<expected_number_of_frames>_<acquisition_status>\n"
+                    "    * PGE log file named depacketize_science_frames.log (default)\n"
+                    "    * Depacketization summary/report file named depacketize_science_frames_report.txt (default)\n",
+        formatter_class=RawTextHelpFormatter)
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
     parser.add_argument("--out_dir", help="Path to output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")

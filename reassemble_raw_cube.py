@@ -12,6 +12,8 @@ import os
 import shutil
 import subprocess
 
+from argparse import RawTextHelpFormatter
+
 import numpy as np
 import spectral.io.envi as envi
 
@@ -25,7 +27,15 @@ CLOUDY_DATA_FLAG = -9997
 def main():
 
     # Read in args
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Description: This script executes the decompression and reassembly portion of the L1A PGE.\n"
+                    "Operating Environment: Python 3.x. See setup.py file for specific dependencies.\n"
+                    "Outputs:\n"
+                    "    * Reassembled raw image file named <image_prefix>_raw.img\n"
+                    "    * Reassembled raw header file named <image_prefix>_raw.hdr\n"
+                    "    * PGE log file named reassemble_raw_pge.log (default)\n"
+                    "    * Reassembly report file named reassemble_raw_pge_report.txt (default)\n",
+        formatter_class=RawTextHelpFormatter)
     parser.add_argument("frames_dir", help="Frames directory path")
     parser.add_argument("--flexcodec_exe", help="Path to flexcodec exe")
     parser.add_argument("--constants_path", help="Path to constants.txt file")
@@ -68,8 +78,7 @@ def main():
     processed_flag_list = []
     coadd_mode_list = []
     failed_decompression_list = []
-    num_decompressed = 0
-    num_uncompressed = 0
+    uncompressed_list = []
 
     # Process frame headers and write out compressed data files
     for path in frame_paths:
@@ -97,13 +106,11 @@ def main():
                 continue
                 # raise RuntimeError(output.stderr.decode("utf-8"))
 
-            num_decompressed += 1
-
         else:
             # Just copy the uncompressed frame and rename it
             logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_data_path}")
             shutil.copy2(path, uncomp_frame_path)
-            num_uncompressed += 1
+            uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[1])
 
         # Get some frame header details and write out uncompressed frame data section
         with open(uncomp_frame_path, "rb") as f:
@@ -125,8 +132,11 @@ def main():
     report_file.write("List of frame numbers that failed decompression (if any):\n")
     if len(failed_decompression_list) > 0:
         report_file.write("\n".join(i for i in failed_decompression_list) + "\n")
-    report_file.write(f"\nNumber of frames not requiring decompression (compression flag set to 0): "
-                      f"{num_uncompressed}\n\n")
+    report_file.write(f"\nTotal number of frames not requiring decompression (compression flag set to 0): "
+                      f"{len(uncompressed_list)}\n")
+    report_file.write("List of frame numbers not requiring decompression (if any):\n")
+    if len(uncompressed_list) > 0:
+        report_file.write("\n".join(i for i in uncompressed_list) + "\n")
 
     # Check all frames have same number of bands
     for i in range(len(num_bands_list)):
@@ -207,7 +217,7 @@ def main():
         line += 32
     del output
 
-    report_file.write(f"\nTotal cloudy frames encountered: {len(missing_frame_nums)}\n")
+    report_file.write(f"\nTotal cloudy frames encountered: {len(cloudy_frame_nums)}\n")
     report_file.write(f"List of cloudy frame numbers (if any):\n")
     if len(cloudy_frame_nums) > 0:
         report_file.write("\n".join(i for i in cloudy_frame_nums))
