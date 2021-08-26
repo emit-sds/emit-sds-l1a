@@ -59,7 +59,8 @@ def main():
     report_file.write("REASSEMBLY REPORT\n")
     report_file.write("-----------------\n\n")
     report_file.write(f"Input frames directory: {args.frames_dir}\n")
-    report_file.write(f"Total number of frames: {len(frame_paths)}\n")
+    expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[2]
+    report_file.write(f"Total number of expected frames (from frame header): {int(expected_frame_num_str)}\n\n")
 
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
@@ -120,7 +121,7 @@ def main():
         frame_data_paths.append(uncomp_data_path)
 
     # Update report with decompression stats
-    report_file.write(f"Number of frames decompressed successfully: {num_decompressed}\n")
+    report_file.write(f"Total decompression errors encountered: {len(failed_decompression_list)}\n")
     report_file.write("List of frame numbers that failed decompression (if any):\n")
     if len(failed_decompression_list) > 0:
         report_file.write("\n".join(i for i in failed_decompression_list) + "\n")
@@ -150,15 +151,16 @@ def main():
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
+    report_file.write(f"Total missing frames encountered: {len(missing_frame_nums)}\n")
     report_file.write("List of missing frame numbers (if any):\n")
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
     acquisition_id = os.path.basename(frame_data_paths[0].split("_")[0])
-    expected_frame_num = os.path.basename(frame_data_paths[0].split("_")[2])
+    # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
         frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num_str).zfill(5),
-                                                                    expected_frame_num, "6"])))
+                                                                    expected_frame_num_str, "6"])))
     frame_data_paths.sort()
 
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
@@ -205,7 +207,8 @@ def main():
         line += 32
     del output
 
-    report_file.write(f"\nList of cloudy frame numbers (if any):\n")
+    report_file.write(f"\nTotal cloudy frames encountered: {len(missing_frame_nums)}\n")
+    report_file.write(f"List of cloudy frame numbers (if any):\n")
     if len(cloudy_frame_nums) > 0:
         report_file.write("\n".join(i for i in cloudy_frame_nums))
     report_file.close()
