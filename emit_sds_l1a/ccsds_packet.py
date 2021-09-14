@@ -304,9 +304,10 @@ class SciencePacketProcessor:
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
 
-    def __init__(self, stream_path):
+    def __init__(self, stream_path, test_mode):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
         self.stream = open(stream_path, "rb")
+        self.test_mode = test_mode
         self._cur_psc = -1
         self._cur_coarse = -1
         self._cur_fine = -1
@@ -336,7 +337,7 @@ class SciencePacketProcessor:
             pkt_hash = str(pkt.course_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
 
             # Handle case where packet is not valid
-            if not pkt.is_valid:
+            if not self.test_mode and not pkt.is_valid:
                 self._stats.invalid_pkt(pkt)
                 # Log the issue and skip packet, which should then result in PSC mismatch
                 logger.warning(f"Skipping next packet because it is invalid: {pkt}")
@@ -357,7 +358,8 @@ class SciencePacketProcessor:
             cur_time_key = str(self._cur_coarse).zfill(10) + str(self._cur_fine).zfill(3)
 
             # Handle the happy case when next_psc matches the read packet and the time keys are in order.
-            if pkt_time_key >= cur_time_key and pkt.pkt_seq_cnt == next_psc:
+            # if pkt_time_key >= cur_time_key and pkt.pkt_seq_cnt == next_psc:
+            if pkt.pkt_seq_cnt == next_psc:
                 self._cur_psc = pkt.pkt_seq_cnt
                 self._cur_coarse = pkt.course_time
                 self._cur_fine = pkt.fine_time
@@ -429,7 +431,7 @@ class SciencePacketProcessor:
                     # Save the last chunk of packet data equal to the length of
                     # the HEADER sync word so we can handle the sync word being
                     # split across packets.
-                    logger.warning("Unable to find header sync word. Skipping packet {pkt}")
+                    logger.warning(f"Unable to find header sync word. Skipping packet {pkt}")
                     self._pkt_partial = pkt
                     self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
 

@@ -29,8 +29,13 @@ def main():
     parser.add_argument("--out_dir", help="Path to output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="depacketize_science_frames.log")
+    parser.add_argument("--test_mode", action="store_true",
+                        help="If enabled, some checking will be disabled like calculating checksums")
 
     args = parser.parse_args()
+
+    # Upper case the log level
+    args.level = args.level.upper()
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
@@ -47,7 +52,7 @@ def main():
     logger.addHandler(handler)
 
     logger.info(f"Processing stream file {args.stream_path}")
-    processor = SciencePacketProcessor(args.stream_path)
+    processor = SciencePacketProcessor(args.stream_path, args.test_mode)
 
     while True:
         try:

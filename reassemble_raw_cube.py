@@ -43,8 +43,13 @@ def main():
     parser.add_argument("--out_dir", help="Output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
+    parser.add_argument("--test_mode", action="store_true",
+                        help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
     args = parser.parse_args()
+
+    # Upper case the log level
+    args.level = args.level.upper()
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
@@ -108,7 +113,7 @@ def main():
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_data_path}")
+            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[1])
 
@@ -145,13 +150,13 @@ def main():
 
     # Abort if any of the frames are not processed (i.e. they are from the raw partition)
     for processed_flag in processed_flag_list:
-        if processed_flag == 0:
+        if not args.test_mode and processed_flag == 0:
             raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
                                f"{processed_flag_list}")
 
     # Abort if coadd mode set to 0
     for coadd_mode in coadd_mode_list:
-        if coadd_mode == 0:
+        if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
     # Add empty decompressed frame files to fill in missing frame numbers
@@ -166,7 +171,7 @@ def main():
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
-    acquisition_id = os.path.basename(frame_data_paths[0].split("_")[0])
+    acquisition_id = os.path.basename(frame_data_paths[0]).split("_")[0]
     # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
         frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num_str).zfill(5),
@@ -199,6 +204,7 @@ def main():
     for path in frame_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[1]
         status = int(os.path.basename(path).split(".")[0].split("_")[3])
+        logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
             frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
