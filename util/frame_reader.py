@@ -10,7 +10,7 @@ import sys
 
 from emit_sds_l1a.frame import Frame, FrameStreamProcessor
 
-logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG)
+logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger("emit-sds-l1a")
 
 frame_path = sys.argv[1]
