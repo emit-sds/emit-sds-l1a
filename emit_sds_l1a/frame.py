@@ -50,7 +50,7 @@ class Frame:
         fname = "_".join([str(self.dcid).zfill(10), str(self.frame_count_in_acq).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
-        logger.debug("Writing frame to path %s" % out_path)
+        logger.info("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
         with open(out_path, "wb") as f:
             f.write(self.hdr + self.data)
