@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--flexcodec_exe", help="Path to flexcodec exe")
     parser.add_argument("--constants_path", help="Path to constants.txt file")
     parser.add_argument("--init_data_path", help="Path to init_data.bin file")
+    parser.add_argument("--interleave", help="Interleave setting for decompression - bil (default) or bip",
+                        default="bil")
     parser.add_argument("--out_dir", help="Output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
@@ -96,8 +98,9 @@ def main():
         # Decompress if compression flag is set, otherwise, just copy file
         if frame.compression_flag == 1:
             # Decompress frame
-            cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v", "--bil",
-                   "-o", uncomp_frame_path]
+            interleave_arg = "--" + args.interleave
+            cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v",
+                   interleave_arg, "-o", uncomp_frame_path]
             cmd_str = " ".join(cmd)
             logger.info(f"Decompressing frame with command '{cmd_str}'")
             output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
@@ -105,9 +108,13 @@ def main():
             # Write output to log
             logger.info(output.stdout.decode("utf-8").replace("\\n", "\n").replace("\\t", "\t"))
 
-            if output.returncode != 0:
+            if output.returncode != 0 or \
+                    "Segments decompressed successfully: 1 of 1" not in output.stdout.decode("utf-8"):
                 logger.error(f"Failed to decompress frame with command '{cmd_str}'")
                 failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[1])
+                # Remove attempted decompression path to avoid confusion
+                if os.path.exists(uncomp_frame_path):
+                    os.remove(uncomp_frame_path)
                 continue
                 # raise RuntimeError(output.stderr.decode("utf-8"))
 
