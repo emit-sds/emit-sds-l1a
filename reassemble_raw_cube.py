@@ -95,6 +95,9 @@ def main():
         frame = Frame(frame_binary)
         uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".xio.decomp")
 
+        # Check frame checksum
+        logger.debug(f"Frame is valid: {frame.is_valid()}")
+
         # Decompress if compression flag is set, otherwise, just copy file
         if frame.compression_flag == 1:
             # Decompress frame
