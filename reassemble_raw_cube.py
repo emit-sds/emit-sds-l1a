@@ -114,6 +114,7 @@ def main():
                 failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[1])
                 # Remove attempted decompression path to avoid confusion
                 if os.path.exists(uncomp_frame_path):
+                    logger.error(f"Removing {uncomp_frame_path}")
                     os.remove(uncomp_frame_path)
                 continue
                 # raise RuntimeError(output.stderr.decode("utf-8"))
