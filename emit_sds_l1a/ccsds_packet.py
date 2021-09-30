@@ -188,7 +188,7 @@ class ScienceDataPacket(CCSDSPacket):
     def is_valid(self):
         """"""
         crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
-        calc_crc = zlib.crc32(self.body[self.SEC_HDR_LEN: -self.CRC_LEN])
+        calc_crc = zlib.crc32(self.hdr_data + self.body[:-self.CRC_LEN])
         return calc_crc == crc
 
     @property
