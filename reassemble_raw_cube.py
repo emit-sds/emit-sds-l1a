@@ -144,6 +144,8 @@ def main():
         frame_data_paths.append(uncomp_data_path)
 
     # Update report with decompression stats
+    failed_decompression_list.sort()
+    uncompressed_list.sort()
     report_file.write(f"Total decompression errors encountered: {len(failed_decompression_list)}\n")
     report_file.write("List of frame numbers that failed decompression (if any):\n")
     if len(failed_decompression_list) > 0:
@@ -155,17 +157,20 @@ def main():
         report_file.write("\n".join(i for i in uncompressed_list) + "\n")
 
     # Check all frames have same number of bands
+    num_bands_list.sort()
     for i in range(len(num_bands_list)):
         if num_bands_list[i] != num_bands_list[0]:
             raise RuntimeError(f"Not all frames have the same number of bands. See list of num_bands: {num_bands_list}")
 
     # Abort if any of the frames are not processed (i.e. they are from the raw partition)
+    processed_flag_list.sort()
     for processed_flag in processed_flag_list:
         if not args.test_mode and processed_flag == 0:
             raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
                                f"{processed_flag_list}")
 
     # Abort if coadd mode set to 0
+    coadd_mode_list.sort()
     for coadd_mode in coadd_mode_list:
         if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
@@ -175,6 +180,7 @@ def main():
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
     seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[2])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
+    missing_frame_nums.sort()
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
     report_file.write(f"\nTotal missing frames encountered: {len(missing_frame_nums)}\n")
