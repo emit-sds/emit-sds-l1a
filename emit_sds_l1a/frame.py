@@ -69,11 +69,12 @@ class Frame:
     def save(self, out_dir, test_mode=False, count=0):
         fname = "_".join([str(self.dcid).zfill(10), str(self.frame_count_in_acq).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
-        out_path = os.path.join(out_dir, fname)
 
         # In test mode, add a numbered prefix
         if test_mode:
-            out_path = f"n{str(count).zfill(3)}_" + out_path
+            fname = f"n{str(count).zfill(3)}_" + fname
+
+        out_path = os.path.join(out_dir, fname)
 
         logger.info("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
