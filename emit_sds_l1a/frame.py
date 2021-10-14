@@ -73,7 +73,7 @@ class Frame:
 
         # In test mode, add a numbered prefix
         if test_mode:
-            out_path = out_path + f"n{count.zfill(3)}_"
+            out_path = f"n{str(count).zfill(3)}_" + out_path
 
         logger.info("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))

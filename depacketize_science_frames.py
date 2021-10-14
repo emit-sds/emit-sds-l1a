@@ -54,8 +54,8 @@ def main():
     logger.info(f"Processing stream file {args.stream_path}")
     processor = SciencePacketProcessor(args.stream_path, args.test_mode)
 
+    count = 0
     while True:
-        count = 0
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
