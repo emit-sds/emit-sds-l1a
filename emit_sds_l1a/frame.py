@@ -66,10 +66,23 @@ class Frame:
                      f"Computed checksum: {self._compute_hdr_checksum()}")
         return is_valid
 
-    def save(self, out_dir):
+    def save(self, out_dir, test_mode=False):
         fname = "_".join([str(self.dcid).zfill(10), str(self.frame_count_in_acq).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
         out_path = os.path.join(out_dir, fname)
+
+        # In test mode, check if out_path exists and if so add a numbered suffix
+        if test_mode and os.path.exists(out_path):
+            toks = out_path.split("_")
+            if len(toks) == 4:
+                # Add _n1
+                out_path = out_path + "_n1"
+            if len(toks) == 5:
+                # Check suffix number and increment
+                new_num = int(toks[4][-1:]) + 1
+                toks[4] = f"n{new_num}"
+                out_path = "_".join(toks)
+
         logger.info("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
         with open(out_path, "wb") as f:

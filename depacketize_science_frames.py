@@ -58,7 +58,7 @@ def main():
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
-            frame.save(args.out_dir)
+            frame.save(args.out_dir, args.test_mode)
         except EOFError:
             break
 
