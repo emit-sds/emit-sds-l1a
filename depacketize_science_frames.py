@@ -55,10 +55,12 @@ def main():
     processor = SciencePacketProcessor(args.stream_path, args.test_mode)
 
     while True:
+        count = 0
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
-            frame.save(args.out_dir, args.test_mode)
+            frame.save(args.out_dir, args.test_mode, count)
+            count += 1
         except EOFError:
             break
 
