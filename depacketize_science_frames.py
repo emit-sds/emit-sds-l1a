@@ -26,7 +26,10 @@ def main():
                     "    * Depacketization summary/report file named depacketize_science_frames_report.txt (default)\n",
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
-    parser.add_argument("--out_dir", help="Path to output directory", default=".")
+    parser.add_argument("--work_dir", help="Path to working directory", default=".")
+    parser.add_argument("--prev_stream_path", help="Path to previous CCSDS stream file")
+    parser.add_argument("--prev_bytes_to_read", help="How many bytes to read from the end of the previous stream",
+                        default="40000000")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="depacketize_science_frames.log")
     parser.add_argument("--test_mode", action="store_true",
@@ -37,8 +40,11 @@ def main():
     # Upper case the log level
     args.level = args.level.upper()
 
-    if not os.path.exists(args.out_dir):
-        os.makedirs(args.out_dir)
+    if not os.path.exists(args.work_dir):
+        os.makedirs(args.work_dir)
+    frames_dir = os.path.join(args.work_dir, "frames")
+    if not os.path.exists(frames_dir):
+        os.makedirs(frames_dir)
 
     # Set up console logging using root logger
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=args.level)
@@ -51,15 +57,34 @@ def main():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    logger.info(f"Processing stream file {args.stream_path}")
-    processor = SciencePacketProcessor(args.stream_path, args.test_mode)
+    # Handle previous stream path if it exists
+    # TODO: Check if previous file is larger than bytes_to_read?
+    prev_stream = bytearray()
+    if args.prev_stream_path is not None:
+        with open(args.prev_stream_path, "rb") as f:
+            f.seek(-int(args.prev_bytes_to_read), 2)
+            prev_stream = f.read(int(args.prev_bytes_to_read))
+
+    logger.debug(f"Length of prev_stream is {len(prev_stream)}")
+
+    # Prepend previous stream bytes and write tmp file if needed
+    if len(prev_stream) == 0:
+        tmp_stream_path = args.stream_path
+    else:
+        stream = prev_stream + open(args.stream_path, "rb").read()
+        tmp_stream_path = os.path.join(args.work_dir, os.path.basename(args.stream_path) + "_prepended")
+        with open(tmp_stream_path, "wb") as f:
+            f.write(stream)
+
+    logger.info(f"Processing stream file {tmp_stream_path}")
+    processor = SciencePacketProcessor(tmp_stream_path, args.test_mode)
 
     count = 0
     while True:
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
-            frame.save(args.out_dir, args.test_mode, count)
+            frame.save(frames_dir, args.test_mode, count)
             count += 1
         except EOFError:
             break
