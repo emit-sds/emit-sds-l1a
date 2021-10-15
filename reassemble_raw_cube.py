@@ -40,11 +40,18 @@ def main():
     parser.add_argument("--flexcodec_exe", help="Path to flexcodec exe")
     parser.add_argument("--constants_path", help="Path to constants.txt file")
     parser.add_argument("--init_data_path", help="Path to init_data.bin file")
+    parser.add_argument("--interleave", help="Interleave setting for decompression - bil (default) or bip",
+                        default="bil")
     parser.add_argument("--out_dir", help="Output directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
+    parser.add_argument("--test_mode", action="store_true",
+                        help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
     args = parser.parse_args()
+
+    # Upper case the log level
+    args.level = args.level.upper()
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
@@ -88,11 +95,15 @@ def main():
         frame = Frame(frame_binary)
         uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".xio.decomp")
 
+        # Check frame checksum
+        logger.debug(f"Frame is valid: {frame.is_valid()}")
+
         # Decompress if compression flag is set, otherwise, just copy file
         if frame.compression_flag == 1:
             # Decompress frame
-            cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v", "--bil",
-                   "-o", uncomp_frame_path]
+            interleave_arg = "--" + args.interleave
+            cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v",
+                   interleave_arg, "-o", uncomp_frame_path]
             cmd_str = " ".join(cmd)
             logger.info(f"Decompressing frame with command '{cmd_str}'")
             output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
@@ -100,15 +111,20 @@ def main():
             # Write output to log
             logger.info(output.stdout.decode("utf-8").replace("\\n", "\n").replace("\\t", "\t"))
 
-            if output.returncode != 0:
+            if output.returncode != 0 or \
+                    "Segments decompressed successfully: 1 of 1" not in output.stdout.decode("utf-8"):
                 logger.error(f"Failed to decompress frame with command '{cmd_str}'")
                 failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[1])
+                # Remove attempted decompression path to avoid confusion
+                if os.path.exists(uncomp_frame_path):
+                    logger.error(f"Removing {uncomp_frame_path}")
+                    os.remove(uncomp_frame_path)
                 continue
                 # raise RuntimeError(output.stderr.decode("utf-8"))
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_data_path}")
+            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[1])
 
@@ -128,6 +144,8 @@ def main():
         frame_data_paths.append(uncomp_data_path)
 
     # Update report with decompression stats
+    failed_decompression_list.sort()
+    uncompressed_list.sort()
     report_file.write(f"Total decompression errors encountered: {len(failed_decompression_list)}\n")
     report_file.write("List of frame numbers that failed decompression (if any):\n")
     if len(failed_decompression_list) > 0:
@@ -139,19 +157,22 @@ def main():
         report_file.write("\n".join(i for i in uncompressed_list) + "\n")
 
     # Check all frames have same number of bands
+    num_bands_list.sort()
     for i in range(len(num_bands_list)):
         if num_bands_list[i] != num_bands_list[0]:
             raise RuntimeError(f"Not all frames have the same number of bands. See list of num_bands: {num_bands_list}")
 
     # Abort if any of the frames are not processed (i.e. they are from the raw partition)
+    processed_flag_list.sort()
     for processed_flag in processed_flag_list:
-        if processed_flag == 0:
+        if not args.test_mode and processed_flag == 0:
             raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
                                f"{processed_flag_list}")
 
     # Abort if coadd mode set to 0
+    coadd_mode_list.sort()
     for coadd_mode in coadd_mode_list:
-        if coadd_mode == 0:
+        if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
     # Add empty decompressed frame files to fill in missing frame numbers
@@ -159,6 +180,7 @@ def main():
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
     seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[2])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
+    missing_frame_nums.sort()
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
     report_file.write(f"\nTotal missing frames encountered: {len(missing_frame_nums)}\n")
@@ -166,7 +188,7 @@ def main():
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
-    acquisition_id = os.path.basename(frame_data_paths[0].split("_")[0])
+    acquisition_id = os.path.basename(frame_data_paths[0]).split("_")[0]
     # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
         frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num_str).zfill(5),
@@ -199,6 +221,7 @@ def main():
     for path in frame_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[1]
         status = int(os.path.basename(path).split(".")[0].split("_")[3])
+        logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
             frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")

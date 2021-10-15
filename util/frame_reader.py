@@ -5,12 +5,11 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
 
 import logging
-import os
 import sys
 
-from emit_sds_l1a.frame import Frame, FrameStreamProcessor
+from emit_sds_l1a.frame import Frame
 
-logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG)
+logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger("emit-sds-l1a")
 
 frame_path = sys.argv[1]
