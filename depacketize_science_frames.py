@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="depacketize_science_frames.log")
     parser.add_argument("--test_mode", action="store_true",
-                        help="If enabled, some checking will be disabled like calculating checksums")
+                        help="If enabled, some actions will change to support testing, like frame file naming")
 
     args = parser.parse_args()
 
