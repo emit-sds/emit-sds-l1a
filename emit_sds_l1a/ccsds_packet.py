@@ -337,7 +337,7 @@ class SciencePacketProcessor:
             pkt_hash = str(pkt.course_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
 
             # Handle case where packet is not valid
-            if not self.test_mode and not pkt.is_valid:
+            if not pkt.is_valid:
                 self._stats.invalid_pkt(pkt)
                 # Log the issue and skip packet, which should then result in PSC mismatch
                 logger.warning(f"Skipping next packet because it is invalid: {pkt}")
