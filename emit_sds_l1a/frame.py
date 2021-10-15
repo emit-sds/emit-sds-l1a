@@ -72,7 +72,7 @@ class Frame:
 
         # In test mode, add a numbered prefix
         if test_mode:
-            fname = f"n{str(count).zfill(3)}_" + fname
+            fname = f"n{str(count).zfill(5)}_" + fname
 
         out_path = os.path.join(out_dir, fname)
 
