@@ -66,14 +66,15 @@ def main():
             f.seek(-bytes_to_read, 2)
             prev_stream = f.read(bytes_to_read)
 
-    logger.debug(f"Length of prev_stream is {len(prev_stream)}")
-
     # Prepend previous stream bytes and write tmp file if needed
     if len(prev_stream) == 0:
         tmp_stream_path = args.stream_path
     else:
+        logger.info(f"Prepending last {len(prev_stream)} bytes from {args.prev_stream_path} to {args.stream_path}")
         stream = prev_stream + open(args.stream_path, "rb").read()
-        tmp_stream_path = os.path.join(args.work_dir, os.path.basename(args.stream_path) + "_prepended")
+        in_file_base = os.path.basename(args.stream_path).split(".")[0]
+        prev_file_base = os.path.basename(args.prev_stream_path).split(".")[0]
+        tmp_stream_path = os.path.join(args.work_dir, prev_file_base + "_" + in_file_base + ".bin")
         with open(tmp_stream_path, "wb") as f:
             f.write(stream)
 
