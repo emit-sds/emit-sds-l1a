@@ -1,0 +1,110 @@
+# Good
+with open(data_path, "rb") as f:
+    psc = 0
+    data = f.read(MAX_PAYLOAD_LEN)
+    ccsds_stream = bytearray()
+    while len(data) > 0:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = f.read(MAX_PAYLOAD_LEN)
+        psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+    with open(out_path, "wb") as out_file:
+        out_file.write(ccsds_stream)
+
+# Missing PSC 10
+with open(data_path, "rb") as f:
+    psc = 0
+    data = f.read(MAX_PAYLOAD_LEN)
+    ccsds_stream = bytearray()
+    while len(data) > 0:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = f.read(MAX_PAYLOAD_LEN)
+        if psc != 10:
+            psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+        else:
+            psc = (psc + 2) % CCSDS_PKT_SEC_COUNT_MOD
+    with open(out_path, "wb") as out_file:
+        out_file.write(ccsds_stream)
+
+# Delayed Start
+with open(data_path, "rb") as f:
+    psc = 0
+    # data = f.read(MAX_PAYLOAD_LEN)
+    data = bytes(MAX_PAYLOAD_LEN - 2) + f.read(2)
+    ccsds_stream = bytearray()
+    while len(data) > 0:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = f.read(MAX_PAYLOAD_LEN)
+        psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+    with open(out_path, "wb") as out_file:
+        out_file.write(ccsds_stream)
+
+# Delayed Start with Missing Packet
+with open(data_path, "rb") as f:
+    psc = 0
+    # data = f.read(MAX_PAYLOAD_LEN)
+    data = bytes(MAX_PAYLOAD_LEN)
+    ccsds_stream = bytearray()
+    while psc < 10:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = bytes(MAX_PAYLOAD_LEN)
+        if psc == 7:
+            psc = (psc + 2) % CCSDS_PKT_SEC_COUNT_MOD
+        else:
+            psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+    while len(data) > 0:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = f.read(MAX_PAYLOAD_LEN)
+        psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+    with open(out_path, "wb") as out_file:
+        out_file.write(ccsds_stream)
+
+# Invalid packet
+    def _construct_body(self):
+        logger.debug("Constructing body")
+        sec_hdr = bytearray(SEC_HDR_LEN)
+        # Add course and fine time
+        course_time = int(time.time())
+        fine_time = int((time.time() % 1) * 256)
+        sec_hdr[:4] = course_time.to_bytes(4, byteorder="big", signed=False)
+        sec_hdr[4] = fine_time
+        calc_crc = zlib.crc32(self.data)
+        if self.psc = 10:
+            crc = bytearray(CRC_LEN)
+        else:
+            crc = calc_crc.to_bytes(CRC_LEN, byteorder="big", signed=False)
+        return sec_hdr + self.data + crc
+
+# Truncate a frame
+with open(data_path, "rb") as f:
+    psc = 0
+    trunc = True
+    data = f.read(MAX_PAYLOAD_LEN)
+    ccsds_stream = bytearray()
+    while len(data) > 0:
+        packet = CCSDSPacketSpoofer(psc, data)
+        logger.info(packet)
+        ccsds_stream += packet.get_packet_bytes()
+        # Increment for next loop
+        data = f.read(MAX_PAYLOAD_LEN)
+        if psc == 16380 and trunc:
+            psc = (psc + 2) % CCSDS_PKT_SEC_COUNT_MOD
+            trunc = False
+        else:
+            psc = (psc + 1) % CCSDS_PKT_SEC_COUNT_MOD
+    with open(out_path, "wb") as out_file:
+        out_file.write(ccsds_stream)

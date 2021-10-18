@@ -37,8 +37,9 @@ def main():
 
     args = parser.parse_args()
 
-    # Upper case the log level
+    # Format args as needed
     args.level = args.level.upper()
+    args.prev_bytes_to_read = int(args.prev_bytes_to_read)
 
     if not os.path.exists(args.work_dir):
         os.makedirs(args.work_dir)
@@ -58,12 +59,12 @@ def main():
     logger.addHandler(handler)
 
     # Handle previous stream path if it exists
-    # TODO: Check if previous file is larger than bytes_to_read?
     prev_stream = bytearray()
     if args.prev_stream_path is not None:
         with open(args.prev_stream_path, "rb") as f:
-            f.seek(-int(args.prev_bytes_to_read), 2)
-            prev_stream = f.read(int(args.prev_bytes_to_read))
+            bytes_to_read = min(args.prev_bytes_to_read, os.path.getsize(args.prev_stream_path))
+            f.seek(-bytes_to_read, 2)
+            prev_stream = f.read(bytes_to_read)
 
     logger.debug(f"Length of prev_stream is {len(prev_stream)}")
 

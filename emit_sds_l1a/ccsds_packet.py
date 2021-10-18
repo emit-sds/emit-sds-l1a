@@ -238,6 +238,8 @@ class SDPProcessingStats:
         self._stats = {
             "ccsds_pkts_read": 0,
             "bytes_read": 0,
+            "bytes_read_since_last_index": 0,
+            "last_pkt_size": 0,
             "truncated_frame_errors": 0,
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
@@ -245,9 +247,15 @@ class SDPProcessingStats:
             "missing_psc": []
         }
 
+    def reset_bytes_since_last_index(self):
+        # Reset this to start at the last packet size, since the found index will be in the last packet read
+        self._stats["bytes_read_since_last_index"] = self._stats["last_pkt_size"]
+
     def ccsds_read(self, pkt):
         self._stats["ccsds_pkts_read"] += 1
+        self._stats["last_pkt_size"] = pkt.size
         self._stats["bytes_read"] += pkt.size
+        self._stats["bytes_read_since_last_index"] += pkt.size
 
     def pkt_seq_err(self, current_pkt, expected_psc):
         self._stats["pkt_seq_errors"] += 1
@@ -286,6 +294,7 @@ class SDPProcessingStats:
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
+            f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
             f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
@@ -411,6 +420,8 @@ class SciencePacketProcessor:
                 # Having taken care of partial packet, look for sync word again
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
                 if index is not None:
+                    # Reset bytes read since last index
+                    self._stats.reset_bytes_since_last_index()
                     # If sync word is found, check minimum processable length and read next packet if needed
                     logger.info(f"Found sync word at index {index} in packet {pkt}")
                     # Remove data before sync word so packet data starts at the beginning of the frame
