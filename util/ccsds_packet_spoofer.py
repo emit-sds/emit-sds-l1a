@@ -33,7 +33,7 @@ class CCSDSPacketSpoofer:
         self.pkt_data_len = SEC_HDR_LEN + len(data) + CRC_LEN - 1
         self.hdr = self._construct_hdr()
         self.body = self._construct_body()
-        self.course_time = int.from_bytes(self.body[:4], "big")
+        self.coarse_time = int.from_bytes(self.body[:4], "big")
         self.fine_time = self.body[4]
 
     def _construct_hdr(self):
@@ -61,10 +61,10 @@ class CCSDSPacketSpoofer:
     def _construct_body(self):
         logger.debug("Constructing body")
         sec_hdr = bytearray(SEC_HDR_LEN)
-        # Add course and fine time
-        course_time = int(time.time())
+        # Add coarse and fine time
+        coarse_time = int(time.time())
         fine_time = int((time.time() % 1) * 256)
-        sec_hdr[:4] = course_time.to_bytes(4, byteorder="big", signed=False)
+        sec_hdr[:4] = coarse_time.to_bytes(4, byteorder="big", signed=False)
         sec_hdr[4] = fine_time
         calc_crc = zlib.crc32(self.data)
         crc = calc_crc.to_bytes(CRC_LEN, byteorder="big", signed=False)
@@ -77,7 +77,7 @@ class CCSDSPacketSpoofer:
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "course_time={} fine_time{} pkt_seq_cnt={}>".format(self.course_time, self.fine_time, self.psc)
+        pkt_str += "coarse_time={} fine_time{} pkt_seq_cnt={}>".format(self.coarse_time, self.fine_time, self.psc)
         return pkt_str
 
 
