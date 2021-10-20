@@ -81,13 +81,11 @@ def main():
     logger.info(f"Processing stream file {tmp_stream_path}")
     processor = SciencePacketProcessor(tmp_stream_path, args.test_mode)
 
-    count = 0
     while True:
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
-            frame.save(frames_dir, args.test_mode, count)
-            count += 1
+            frame.save(frames_dir)
         except EOFError:
             break
 
