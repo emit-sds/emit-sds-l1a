@@ -81,7 +81,7 @@ class Frame:
         utc_time = d - dt.timedelta(seconds=offset)
         utc_time_str = utc_time.strftime("%Y%m%dt%H%M%S")
 
-        fname = "_".join([utc_time_str, str(self.dcid).zfill(10), str(self.frame_count_in_acq).zfill(5),
+        fname = "_".join([str(self.dcid).zfill(10), utc_time_str, str(self.frame_count_in_acq).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
 
         out_path = os.path.join(out_dir, fname)
