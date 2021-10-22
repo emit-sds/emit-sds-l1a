@@ -4,9 +4,13 @@ The Frame class is used to read acquisition frames with uncompressed frame heade
 Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
 
+import datetime as dt
 import logging
 import numpy as np
 import os
+import time
+
+from ait.core import dmc
 
 logger = logging.getLogger("emit-sds-l1a")
 
@@ -27,10 +31,12 @@ class Frame:
         self.acq_status = int.from_bytes(self.hdr[32:36], byteorder="little", signed=False)
         self.first_frame_flag = self.hdr[32] & 0x01
         self.cloudy_flag = (self.hdr[32] & 0x04) >> 2
+        self.line_timestamp = int.from_bytes(self.hdr[36:40], byteorder="little", signed=False)
         self.line_count = int.from_bytes(self.hdr[44:52], byteorder="little", signed=False)
         self.frame_count_in_acq = int.from_bytes(self.hdr[810:818], byteorder="little", signed=False)
         self.solar_zenith = int.from_bytes(self.hdr[822:826], byteorder="little", signed=False)
         self.planned_num_frames = int.from_bytes(self.hdr[922:926], byteorder="little", signed=False)
+        self.os_time_timestamp = int.from_bytes(self.hdr[926:930], byteorder="little", signed=False)
         self.os_time = int.from_bytes(self.hdr[930:938], byteorder="little", signed=False)
         self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
         self.coadd_mode = self.hdr[1010] & 0x01
@@ -42,9 +48,11 @@ class Frame:
             self.sync_word, self.data_size, self.frame_count_pre, self.frame_count_post, self.compression_flag)
         repr += "processed_flag={} dcid={} acq_status={} first_frame_flag={} cloudy_flag={} ".format(
             self.processed_flag, self.dcid, self.acq_status, self.first_frame_flag, self.cloudy_flag)
-        repr += "frame_count_in_acq={} solar_zenith={} planned_num_frames={} os_time={} num_bands={} ".format(
-            self.frame_count_in_acq, self.solar_zenith, self.planned_num_frames, self.os_time, self.num_bands)
-        repr += "coadd_mode={} checksum={}>".format(self.coadd_mode, self.frame_header_checksum)
+        repr += "line_timestamp={} line_count={} ".format(self.line_timestamp, self.line_count)
+        repr += "frame_count_in_acq={} solar_zenith={} planned_num_frames={} os_time_timestamp={} os_time={} ".format(
+            self.frame_count_in_acq, self.solar_zenith, self.planned_num_frames, self.os_time_timestamp, self.os_time)
+        repr += " num_bands={} coadd_mode={} checksum={}>".format(
+            self.num_bands, self.coadd_mode, self.frame_header_checksum)
         return repr
 
     def _compute_hdr_checksum(self):
@@ -66,13 +74,15 @@ class Frame:
                      f"Computed checksum: {self._compute_hdr_checksum()}")
         return is_valid
 
-    def save(self, out_dir, test_mode=False, count=0):
-        fname = "_".join([str(self.dcid).zfill(10), str(self.frame_count_in_acq).zfill(5),
-                          str(self.planned_num_frames).zfill(5), str(self.acq_status)])
+    def save(self, out_dir):
+        # Convert os time (GPS time) to a timestamp in utc
+        d = dmc.GPS_Epoch + dt.timedelta(seconds=(self.os_time // 10**9))
+        offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+        utc_time = d - dt.timedelta(seconds=offset)
+        utc_time_str = utc_time.strftime("%Y%m%dt%H%M%S")
 
-        # In test mode, add a numbered prefix
-        if test_mode:
-            fname = f"n{str(count).zfill(5)}_" + fname
+        fname = "_".join([str(self.dcid).zfill(10), utc_time_str, str(self.frame_count_in_acq).zfill(5),
+                          str(self.planned_num_frames).zfill(5), str(self.acq_status)])
 
         out_path = os.path.join(out_dir, fname)
 

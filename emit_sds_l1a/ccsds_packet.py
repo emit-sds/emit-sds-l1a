@@ -146,13 +146,13 @@ class ScienceDataPacket(CCSDSPacket):
         self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
 
     @property
-    def course_time(self):
+    def coarse_time(self):
         t = -1
         if len(self.body) >= 4:
             t = int.from_bytes(self.body[:4], "big")
         else:
             logging.error(
-                f"Insufficient data length {len(self.body)} to extract course time "
+                f"Insufficient data length {len(self.body)} to extract coarse time "
                 f"from EngineeringDataPacket. Returning default value: {t}"
             )
 
@@ -221,8 +221,8 @@ class ScienceDataPacket(CCSDSPacket):
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "course_time={} fine_time{} pkt_seq_cnt={}>".format(
-            self.course_time, self.fine_time, self.pkt_seq_cnt)
+        pkt_str += "coarse_time={} fine_time{} pkt_seq_cnt={}>".format(
+            self.coarse_time, self.fine_time, self.pkt_seq_cnt)
         return pkt_str
 
 
@@ -238,6 +238,8 @@ class SDPProcessingStats:
         self._stats = {
             "ccsds_pkts_read": 0,
             "bytes_read": 0,
+            "bytes_read_since_last_index": 0,
+            "last_pkt_size": 0,
             "truncated_frame_errors": 0,
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
@@ -245,31 +247,37 @@ class SDPProcessingStats:
             "missing_psc": []
         }
 
+    def reset_bytes_since_last_index(self):
+        # Reset this to start at the last packet size, since the found index will be in the last packet read
+        self._stats["bytes_read_since_last_index"] = self._stats["last_pkt_size"]
+
     def ccsds_read(self, pkt):
         self._stats["ccsds_pkts_read"] += 1
+        self._stats["last_pkt_size"] = pkt.size
         self._stats["bytes_read"] += pkt.size
+        self._stats["bytes_read_since_last_index"] += pkt.size
 
     def pkt_seq_err(self, current_pkt, expected_psc):
         self._stats["pkt_seq_errors"] += 1
 
-        cur_course = current_pkt.course_time
+        cur_coarse = current_pkt.coarse_time
         cur_fine = current_pkt.fine_time
         cur_psc = current_pkt.pkt_seq_cnt
 
         # TODO: Add padding for alphabetical sort
         if cur_psc > expected_psc:
             for i in range(expected_psc, cur_psc):
-                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+                self._stats["missing_psc"].append(f"{cur_coarse}_{cur_fine}_{i}")
         else:
             for i in range(expected_psc, CCSDSPacket.CCSDS_PKT_SEC_COUNT_MOD):
-                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+                self._stats["missing_psc"].append(f"{cur_coarse}_{cur_fine}_{i}")
 
             for i in range(cur_psc):
-                self._stats["missing_psc"].append(f"{cur_course}_{cur_fine}_{i}")
+                self._stats["missing_psc"].append(f"{cur_coarse}_{cur_fine}_{i}")
 
     def invalid_pkt(self, pkt):
         self._stats["invalid_pkt_errors"] += 1
-        self._stats["invalid_psc"].append(f"{pkt.course_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
+        self._stats["invalid_psc"].append(f"{pkt.coarse_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
 
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
@@ -286,6 +294,7 @@ class SDPProcessingStats:
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
+            f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
             f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
@@ -334,7 +343,7 @@ class SciencePacketProcessor:
         while True:
             pkt = ScienceDataPacket(stream=self.stream)
             self._stats.ccsds_read(pkt)
-            pkt_hash = str(pkt.course_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
+            pkt_hash = str(pkt.coarse_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
 
             # Handle case where packet is not valid
             if not pkt.is_valid:
@@ -347,21 +356,21 @@ class SciencePacketProcessor:
             if self._cur_psc < 0:
                 # Initialize self.cur_psc and return packet
                 self._cur_psc = pkt.pkt_seq_cnt
-                self._cur_coarse = pkt.course_time
+                self._cur_coarse = pkt.coarse_time
                 self._cur_fine = pkt.fine_time
                 self._processed_pkts[pkt_hash] = True
                 return pkt
 
             # Get next psc and compare time keys
             next_psc = CCSDSPacket.next_psc(self._cur_psc)
-            pkt_time_key = str(pkt.course_time).zfill(10) + str(pkt.fine_time).zfill(3)
+            pkt_time_key = str(pkt.coarse_time).zfill(10) + str(pkt.fine_time).zfill(3)
             cur_time_key = str(self._cur_coarse).zfill(10) + str(self._cur_fine).zfill(3)
 
             # Handle the happy case when next_psc matches the read packet and the time keys are in order.
             # if pkt_time_key >= cur_time_key and pkt.pkt_seq_cnt == next_psc:
             if pkt.pkt_seq_cnt == next_psc:
                 self._cur_psc = pkt.pkt_seq_cnt
-                self._cur_coarse = pkt.course_time
+                self._cur_coarse = pkt.coarse_time
                 self._cur_fine = pkt.fine_time
                 self._processed_pkts[pkt_hash] = True
                 return pkt
@@ -377,7 +386,7 @@ class SciencePacketProcessor:
                 # PSC mismatch - reset cur psc and remove any partial packet
                 self._stats.pkt_seq_err(pkt, next_psc)
                 self._cur_psc = pkt.pkt_seq_cnt
-                self._cur_coarse = pkt.course_time
+                self._cur_coarse = pkt.coarse_time
                 self._cur_fine = pkt.fine_time
                 self._processed_pkts[pkt_hash] = True
                 self._pkt_partial = pkt
@@ -411,6 +420,8 @@ class SciencePacketProcessor:
                 # Having taken care of partial packet, look for sync word again
                 index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
                 if index is not None:
+                    # Reset bytes read since last index
+                    self._stats.reset_bytes_since_last_index()
                     # If sync word is found, check minimum processable length and read next packet if needed
                     logger.info(f"Found sync word at index {index} in packet {pkt}")
                     # Remove data before sync word so packet data starts at the beginning of the frame

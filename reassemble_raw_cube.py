@@ -76,7 +76,7 @@ def main():
     report_file.write("REASSEMBLY REPORT\n")
     report_file.write("-----------------\n\n")
     report_file.write(f"Input frames directory: {args.frames_dir}\n")
-    expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[2]
+    expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[3]
     report_file.write(f"Total number of expected frames (from frame header): {int(expected_frame_num_str)}\n\n")
 
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
@@ -114,7 +114,7 @@ def main():
             if output.returncode != 0 or \
                     "Segments decompressed successfully: 1 of 1" not in output.stdout.decode("utf-8"):
                 logger.error(f"Failed to decompress frame with command '{cmd_str}'")
-                failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[1])
+                failed_decompression_list.append(os.path.basename(path).split(".")[0].split("_")[2])
                 # Remove attempted decompression path to avoid confusion
                 if os.path.exists(uncomp_frame_path):
                     logger.error(f"Removing {uncomp_frame_path}")
@@ -126,7 +126,7 @@ def main():
             # Just copy the uncompressed frame and rename it
             logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
-            uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[1])
+            uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[2])
 
         # Get some frame header details and write out uncompressed frame data section
         with open(uncomp_frame_path, "rb") as f:
@@ -176,9 +176,9 @@ def main():
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
     # Add empty decompressed frame files to fill in missing frame numbers
-    raw_frame_nums = [int(os.path.basename(path).split("_")[1]) for path in frame_data_paths]
+    raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
-    seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[2])))
+    seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[3])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
     missing_frame_nums.sort()
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
@@ -188,15 +188,16 @@ def main():
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
-    acquisition_id = os.path.basename(frame_data_paths[0]).split("_")[0]
+    dcid = os.path.basename(frame_data_paths[0]).split("_")[0]
+    os_time_str = os.path.basename(frame_data_paths[0]).split("_")[1]
     # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
-        frame_data_paths.append(os.path.join(args.out_dir, "_".join([acquisition_id, str(frame_num_str).zfill(5),
+        frame_data_paths.append(os.path.join(args.out_dir, "_".join([dcid, os_time_str, str(frame_num_str).zfill(5),
                                                                     expected_frame_num_str, "6"])))
     frame_data_paths.sort()
 
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
-    hdr_path = os.path.join(args.out_dir, acquisition_id + "_raw.hdr")
+    hdr_path = os.path.join(args.out_dir, dcid + "_raw.hdr")
     num_lines = 32 * len(frame_data_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
@@ -219,8 +220,8 @@ def main():
     cloudy_frame_nums = []
     line = 0
     for path in frame_data_paths:
-        frame_num_str = os.path.basename(path).split(".")[0].split("_")[1]
-        status = int(os.path.basename(path).split(".")[0].split("_")[3])
+        frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
+        status = int(os.path.basename(path).split(".")[0].split("_")[4])
         logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
