@@ -11,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="emit_sds_l1a",
-    version="0.2.0",
+    version="0.3.0",
     author="Winston Olson-Duvall",
     author_email="winston.olson-duvall@jpl.nasa.gov",
     description="""
@@ -32,6 +32,7 @@ setuptools.setup(
         "spectral>=0.21",
         "pytest>=6.2.4",
         "pytest-cov>=2.10.1",
-        "pycodestyle>=2.6.0"
+        "pycodestyle>=2.6.0",
+        "ait-core>=2.3.5"
     ]
 )
