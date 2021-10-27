@@ -6,12 +6,14 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
 
 import argparse
+import datetime as dt
 import glob
 import logging
 import os
 import shutil
 import subprocess
 
+from ait.core import dmc
 from argparse import RawTextHelpFormatter
 
 import numpy as np
@@ -22,6 +24,40 @@ from emit_sds_l1a.frame import Frame
 # TODO: Different flags for missing frame vs. missing portion of frame?
 MISSING_DATA_FLAG = -9998
 CLOUDY_DATA_FLAG = -9997
+
+
+def get_utc_time_from_gps(gps_time):
+    # Convert gps_time in nanoseconds to a timestamp in utc
+    d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+    utc_time = d - dt.timedelta(seconds=offset)
+    return utc_time
+
+
+def calculate_start_stop_times(start_times_gps):
+    # Populate x, y from available gps times
+    x = []
+    y = []
+    for i, val in enumerate(start_times_gps):
+        if val is not None:
+            x.append(i)
+            y.append(val)
+    x = np.array(x)
+    y = np.array(y)
+    m, b = np.polyfit(x, y, 1)
+
+    # Create output list and fill in with start and stop times
+    start_stop_times = []
+    for i, val in enumerate(start_times_gps):
+        if val is not None:
+            start_time = get_utc_time_from_gps(val)
+            stop_time = get_utc_time_from_gps(val + m)
+        else:
+            fit_val = m * i + b
+            start_time = get_utc_time_from_gps(fit_val)
+            stop_time = get_utc_time_from_gps(fit_val + m)
+        start_stop_times.append([start_time, stop_time])
+    return start_stop_times
 
 
 def main():
@@ -42,19 +78,26 @@ def main():
     parser.add_argument("--init_data_path", help="Path to init_data.bin file")
     parser.add_argument("--interleave", help="Interleave setting for decompression - bil (default) or bip",
                         default="bil")
-    parser.add_argument("--out_dir", help="Output directory", default=".")
+    parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
+    parser.add_argument("--chunksize", help="Number of lines per output acquisition.", default=1280)
     parser.add_argument("--test_mode", action="store_true",
                         help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
     args = parser.parse_args()
 
+    if args.chunksize % 32 != 0:
+        raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of 32")
+
     # Upper case the log level
     args.level = args.level.upper()
 
-    if not os.path.exists(args.out_dir):
-        os.makedirs(args.out_dir)
+    if not os.path.exists(args.work_dir):
+        os.makedirs(args.work_dir)
+    image_dir = os.path.join(args.work_dir, "image")
+    if not os.path.exists(image_dir):
+        os.makedirs(image_dir)
 
     # Set up console logging using root logger
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=args.level)
@@ -86,6 +129,7 @@ def main():
     coadd_mode_list = []
     failed_decompression_list = []
     uncompressed_list = []
+    start_times_gps = [None] * int(expected_frame_num_str)
 
     # Process frame headers and write out compressed data files
     for path in frame_paths:
@@ -93,7 +137,7 @@ def main():
         with open(path, "rb") as f:
             frame_binary = f.read()
         frame = Frame(frame_binary)
-        uncomp_frame_path = os.path.join(args.out_dir, os.path.basename(path) + ".xio.decomp")
+        uncomp_frame_path = os.path.join(image_dir, os.path.basename(path) + ".xio.decomp")
 
         # Check frame checksum
         logger.debug(f"Frame is valid: {frame.is_valid()}")
@@ -132,6 +176,10 @@ def main():
         with open(uncomp_frame_path, "rb") as f:
             uncomp_frame_binary = f.read()
         uncomp_frame = Frame(uncomp_frame_binary)
+
+        # Get start and stop times for each frame
+        frame_num_index = int(os.path.basename(uncomp_frame_path).split(".")[0].split("_")[2])
+        start_times_gps[frame_num_index] = uncomp_frame.start_time_gps
 
         num_bands_list.append(uncomp_frame.num_bands)
         processed_flag_list.append(uncomp_frame.processed_flag)
@@ -175,6 +223,9 @@ def main():
         if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
+    # Calculate start/stop times for each frame
+    start_stop_times = calculate_start_stop_times(start_times_gps)
+
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
@@ -192,12 +243,12 @@ def main():
     os_time_str = os.path.basename(frame_data_paths[0]).split("_")[1]
     # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
-        frame_data_paths.append(os.path.join(args.out_dir, "_".join([dcid, os_time_str, str(frame_num_str).zfill(5),
+        frame_data_paths.append(os.path.join(image_dir, "_".join([dcid, os_time_str, str(frame_num_str).zfill(5),
                                                                     expected_frame_num_str, "6"])))
     frame_data_paths.sort()
 
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
-    hdr_path = os.path.join(args.out_dir, dcid + "_raw.hdr")
+    hdr_path = os.path.join(image_dir, dcid + "_raw.hdr")
     num_lines = 32 * len(frame_data_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",

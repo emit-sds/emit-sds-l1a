@@ -14,11 +14,15 @@ from ait.core import dmc
 
 logger = logging.getLogger("emit-sds-l1a")
 
+MAX_32BIT_UNSIGNED_INT = 4294967295
+
 
 class Frame:
 
     def __init__(self, frame_binary):
         self.HDR_NUM_BYTES = 1280
+
+        # Read fields from header
         self.hdr = frame_binary[0: self.HDR_NUM_BYTES]
         self.sync_word = self.hdr[0:4]
         self.data_size = int.from_bytes(self.hdr[4:8], byteorder="little", signed=False)
@@ -41,6 +45,12 @@ class Frame:
         self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
         self.coadd_mode = self.hdr[1010] & 0x01
         self.frame_header_checksum = int.from_bytes(self.hdr[1276:1280], byteorder="little", signed=False)
+
+        # Calculate some timing information
+        self.os_time_in_utc = self._get_utc_time_from_gps(self.os_time)
+        self.start_time_gps = self._calc_start_time_gps()
+        self.start_time = self._get_utc_time_from_gps(self.start_time_gps)
+
         logger.debug(f"Initialized frame: {self}")
 
     def __repr__(self):
@@ -51,9 +61,25 @@ class Frame:
         repr += "line_timestamp={} line_count={} ".format(self.line_timestamp, self.line_count)
         repr += "frame_count_in_acq={} solar_zenith={} planned_num_frames={} os_time_timestamp={} os_time={} ".format(
             self.frame_count_in_acq, self.solar_zenith, self.planned_num_frames, self.os_time_timestamp, self.os_time)
-        repr += " num_bands={} coadd_mode={} checksum={}>".format(
-            self.num_bands, self.coadd_mode, self.frame_header_checksum)
+        repr += " num_bands={} coadd_mode={} checksum={} os_time_utc={} start_time={}>".format(
+            self.num_bands, self.coadd_mode, self.frame_header_checksum, self.os_time_in_utc, self.start_time)
         return repr
+
+    def _get_utc_time_from_gps(self, gps_time):
+        # Convert gps_time in nanoseconds to a timestamp in utc
+        d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+        offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+        utc_time = d - dt.timedelta(seconds=offset)
+        return utc_time
+
+    def _calc_start_time_gps(self):
+        line_timestamp = self.line_timestamp
+        if self.line_timestamp < self.os_time_timestamp:
+            line_timestamp = self.line_timestamp + MAX_32BIT_UNSIGNED_INT
+        # timestamp counter runs at 100,000 ticks per second.
+        # convert to nanoseconds by dividing by 10^5 and then multiplying by 10^9 (or just multiply by 10^4)
+        nanoseconds_offset = (line_timestamp - self.os_time_timestamp) * 10 ** 4
+        return self.os_time + nanoseconds_offset
 
     def _compute_hdr_checksum(self):
         # Compute sum of header fields up to offset 1276
@@ -75,11 +101,7 @@ class Frame:
         return is_valid
 
     def save(self, out_dir):
-        # Convert os time (GPS time) to a timestamp in utc
-        d = dmc.GPS_Epoch + dt.timedelta(seconds=(self.os_time // 10**9))
-        offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
-        utc_time = d - dt.timedelta(seconds=offset)
-        utc_time_str = utc_time.strftime("%Y%m%dt%H%M%S")
+        utc_time_str = self.os_time_in_utc.strftime("%Y%m%dt%H%M%S")
 
         fname = "_".join([str(self.dcid).zfill(10), utc_time_str, str(self.frame_count_in_acq).zfill(5),
                           str(self.planned_num_frames).zfill(5), str(self.acq_status)])
