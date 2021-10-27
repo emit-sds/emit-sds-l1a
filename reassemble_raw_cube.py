@@ -60,6 +60,64 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
+def reassemble_acquisition(acq_data_paths, start_time, stop_time, num_bands, image_dir, logger):
+    # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
+    # First create acquisition_id from frame start_time
+    acquisition_id = "_".join(["emit", start_time.strftime("%Y%m%dt%H%M%S"), stop_time.strftime("%Y%m%dt%H%M%S")])
+
+    hdr_path = os.path.join(image_dir, acquisition_id + "_raw.hdr")
+    num_lines = 32 * len(acq_data_paths)
+    hdr = {
+        "description": "EMIT L1A raw instrument data (units: DN)",
+        "samples": 1280,
+        "lines": num_lines,
+        "bands": num_bands,
+        "header offset": 0,
+        "file type": "ENVI",
+        "data type": 2,
+        "interleave": "bil",
+        "byte order": 0
+    }
+
+    envi.write_envi_header(hdr_path, hdr)
+    out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
+    output = out_file.open_memmap(interleave="source", writable=True)
+    output[:, :, :] = -9999
+
+    logger.debug(f"Assembling frames into raw file with header {hdr_path}")
+    logger.debug(f"Start time: {start_time}, Stop time: {stop_time}")
+    # TODO: Round to nearest second?
+    cloudy_frame_nums = []
+    line = 0
+    for path in acq_data_paths:
+        frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
+        status = int(os.path.basename(path).split(".")[0].split("_")[4])
+        logger.debug(f"Adding frame {path}")
+        # Non-cloudy frames
+        if status in (0, 1):
+            frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        # Cloudy frames
+        if status in (4, 5):
+            cloudy_frame_nums.append(frame_num_str)
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
+                            dtype=np.uint16)
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        # Missing frames
+        if status == 6:
+            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
+                            dtype=np.uint16)
+            output[line:line + 32, :, :] = frame[:, :, :].copy()
+        line += 32
+    del output
+
+    # report_file.write(f"\nTotal cloudy frames encountered: {len(cloudy_frame_nums)}\n")
+    # report_file.write(f"List of cloudy frame numbers (if any):\n")
+    # if len(cloudy_frame_nums) > 0:
+    #     report_file.write("\n".join(i for i in cloudy_frame_nums))
+    # report_file.close()
+
+
 def main():
 
     # Read in args
@@ -81,7 +139,7 @@ def main():
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
-    parser.add_argument("--chunksize", help="Number of lines per output acquisition.", default=1280)
+    parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=1280)
     parser.add_argument("--test_mode", action="store_true",
                         help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
@@ -239,64 +297,37 @@ def main():
     if len(missing_frame_nums) > 0:
         report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
 
+    # Add missing paths into frame_data_paths list with acquisition status of "6" to indicate missing.
     dcid = os.path.basename(frame_data_paths[0]).split("_")[0]
     os_time_str = os.path.basename(frame_data_paths[0]).split("_")[1]
-    # expected_frame_num_str = os.path.basename(frame_data_paths[0].split("_")[2])
     for frame_num_str in missing_frame_nums:
         frame_data_paths.append(os.path.join(image_dir, "_".join([dcid, os_time_str, str(frame_num_str).zfill(5),
                                                                     expected_frame_num_str, "6"])))
     frame_data_paths.sort()
 
-    # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
-    hdr_path = os.path.join(image_dir, dcid + "_raw.hdr")
-    num_lines = 32 * len(frame_data_paths)
-    hdr = {
-        "description": "EMIT L1A raw instrument data (units: DN)",
-        "samples": 1280,
-        "lines": num_lines,
-        "bands": num_bands_list[0],
-        "header offset": 0,
-        "file type": "ENVI",
-        "data type": 2,
-        "interleave": "bil",
-        "byte order": 0
-    }
+    i = 0
+    num_frames = len(frame_data_paths)
+    frame_chunksize = min(args.chunksize // 32, num_frames)
+    # Loop through the frames and create acquisitions
+    while i + frame_chunksize <= num_frames and \
+            num_frames - (i + frame_chunksize) >= frame_chunksize:
+        acq_data_paths = frame_data_paths[i: i + frame_chunksize]
+        reassemble_acquisition(acq_data_paths,
+                               start_stop_times[i][0],
+                               start_stop_times[i + frame_chunksize - 1][1],
+                               num_bands_list[0],
+                               image_dir,
+                               logger)
+        i += frame_chunksize
+    # There will be one left over at the end that is the frame_chunksize + remaining frames
+    acq_data_paths = frame_data_paths[i:]
+    reassemble_acquisition(acq_data_paths,
+                           start_stop_times[i][0],
+                           start_stop_times[num_frames - 1][1],
+                           num_bands_list[0],
+                           image_dir,
+                           logger)
 
-    envi.write_envi_header(hdr_path, hdr)
-    out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
-    output = out_file.open_memmap(interleave="source", writable=True)
-    output[:, :, :] = -9999
-
-    logger.debug(f"Assembling frames into raw file with header {hdr_path}")
-    cloudy_frame_nums = []
-    line = 0
-    for path in frame_data_paths:
-        frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
-        status = int(os.path.basename(path).split(".")[0].split("_")[4])
-        logger.debug(f"Adding frame {path}")
-        # Non-cloudy frames
-        if status in (0, 1):
-            frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
-        # Cloudy frames
-        if status in (4, 5):
-            cloudy_frame_nums.append(frame_num_str)
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
-                            dtype=np.uint16)
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
-        # Missing frames
-        if status == 6:
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
-                            dtype=np.uint16)
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
-        line += 32
-    del output
-
-    report_file.write(f"\nTotal cloudy frames encountered: {len(cloudy_frame_nums)}\n")
-    report_file.write(f"List of cloudy frame numbers (if any):\n")
-    if len(cloudy_frame_nums) > 0:
-        report_file.write("\n".join(i for i in cloudy_frame_nums))
-    report_file.close()
     logger.info("Done")
 
 
