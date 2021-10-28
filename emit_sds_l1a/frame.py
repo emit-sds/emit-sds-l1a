@@ -101,10 +101,9 @@ class Frame:
         return is_valid
 
     def save(self, out_dir):
-        utc_time_str = self.os_time_in_utc.strftime("%Y%m%dt%H%M%S")
-
-        fname = "_".join([str(self.dcid).zfill(10), utc_time_str, str(self.frame_count_in_acq).zfill(5),
-                          str(self.planned_num_frames).zfill(5), str(self.acq_status)])
+        fname = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
+                          str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
+                          str(self.acq_status)])
 
         out_path = os.path.join(out_dir, fname)
 

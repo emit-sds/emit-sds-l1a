@@ -290,6 +290,7 @@ class SDPProcessingStats:
         invalid_pscs_str = "\n".join([i for i in self._stats["invalid_psc"]])
 
         return (
+            "--------------------\n"
             "SDP PROCESSING STATS\n"
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"

@@ -60,10 +60,12 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
-def reassemble_acquisition(acq_data_paths, start_time, stop_time, num_bands, image_dir, logger):
+def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, num_bands, image_dir,
+                           report_text, failed_decompression_list, uncompressed_list, missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
-    acquisition_id = "_".join(["emit", start_time.strftime("%Y%m%dt%H%M%S"), stop_time.strftime("%Y%m%dt%H%M%S")])
+    # Assume acquisitions are at least 1 second long
+    acquisition_id = "emit" + start_time.strftime("%Y%m%dt%H%M%S")
 
     hdr_path = os.path.join(image_dir, acquisition_id + "_raw.hdr")
     num_lines = 32 * len(acq_data_paths)
@@ -111,11 +113,57 @@ def reassemble_acquisition(acq_data_paths, start_time, stop_time, num_bands, ima
         line += 32
     del output
 
-    # report_file.write(f"\nTotal cloudy frames encountered: {len(cloudy_frame_nums)}\n")
-    # report_file.write(f"List of cloudy frame numbers (if any):\n")
-    # if len(cloudy_frame_nums) > 0:
-    #     report_file.write("\n".join(i for i in cloudy_frame_nums))
-    # report_file.close()
+    # Create a reassembly report
+    report_path = hdr_path.replace("_raw.hdr", "_report.txt")
+    with open(report_path, "w") as f:
+        f.write(report_text)
+
+        f.write("ACQUISITION STATS\n")
+        f.write("-----------------\n\n")
+        f.write(f"Acquisition ID:  {acquisition_id}\n")
+        f.write(f'Start time: {start_time}\n')
+        f.write(f'Stop time: {stop_time}\n')
+        f.write(f"Number of samples: 1280\n")
+        f.write(f"Number of bands: {num_bands}\n")
+        f.write(f"Number of lines: {num_lines}\n\n")
+
+        f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
+        f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
+
+        # Get list of acquisition frame nums and convert to padded strings like other lists
+        acquisition_frame_nums = list(range(start_index, stop_index + 1))
+        acquisition_frame_nums = [str(num).zfill(5) for num in acquisition_frame_nums]
+
+        failed_decompression_in_acq = list(set(acquisition_frame_nums) & set(failed_decompression_list))
+        failed_decompression_in_acq.sort()
+
+        f.write(f"Total decompression errors encountered in this acquisition: {len(failed_decompression_in_acq)}\n")
+        f.write("List of frame numbers that failed decompression (if any):\n")
+        if len(failed_decompression_in_acq) > 0:
+            f.write("\n".join(i for i in failed_decompression_in_acq) + "\n")
+
+        uncompressed_in_acq = list(set(acquisition_frame_nums) & set(uncompressed_list))
+        uncompressed_in_acq.sort()
+
+        f.write(f"\nTotal number of frames not requiring decompression in this acquisition "
+                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
+        f.write("List of frame numbers not requiring decompression (if any):\n")
+        if len(uncompressed_in_acq) > 0:
+            f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
+
+        missing_frame_nums_in_acq = list(set(acquisition_frame_nums) & set(missing_frame_nums))
+        missing_frame_nums_in_acq.sort()
+
+        f.write(f"\nTotal missing frames encountered in this acquisition: {len(missing_frame_nums_in_acq)}\n")
+        f.write("List of missing frame numbers (if any):\n")
+        if len(missing_frame_nums_in_acq) > 0:
+            f.write("\n".join(i for i in missing_frame_nums_in_acq) + "\n")
+
+        cloudy_frame_nums.sort()
+        f.write(f"\nTotal cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
+        f.write(f"List of cloudy frame numbers (if any):\n")
+        if len(cloudy_frame_nums) > 0:
+            f.write("\n".join(i for i in cloudy_frame_nums))
 
 
 def main():
@@ -169,16 +217,25 @@ def main():
 
     # Get frame paths
     frame_paths = glob.glob(os.path.join(args.frames_dir, "*"))
+    if len(frame_paths) == 0:
+        raise RuntimeError(f"Could not find any frames in {args.frames_dir}. Unable to proceed with reassembly.")
     frame_paths.sort()
 
-    # Create a reassembly report
-    report_path = args.log_path.replace(".log", "_report.txt")
-    report_file = open(report_path, "w")
-    report_file.write("REASSEMBLY REPORT\n")
-    report_file.write("-----------------\n\n")
-    report_file.write(f"Input frames directory: {args.frames_dir}\n")
+    # Get dcid and os time string
+    dcid = os.path.basename(frame_paths[0]).split("_")[0]
+    os_time_str = os.path.basename(frame_paths[0]).split("_")[1]
+
+    # Start populating the report text to be written for each acquisition
+    report_txt = "-----------------\n"
+    report_txt += "REASSEMBLY REPORT\n"
+    report_txt += "-----------------\n\n"
+    report_txt += "DATA COLLECTION STATS\n"
+    report_txt += "---------------------\n\n"
+    report_txt += f"DCID: {dcid}\n"
+    report_txt += f"Input frames directory: {args.frames_dir}\n"
     expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[3]
-    report_file.write(f"Total number of expected frames (from frame header): {int(expected_frame_num_str)}\n\n")
+    report_txt += f"Total number of expected frames (from frame header): " \
+        f"{int(expected_frame_num_str)}\n\n"
 
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
@@ -252,15 +309,6 @@ def main():
     # Update report with decompression stats
     failed_decompression_list.sort()
     uncompressed_list.sort()
-    report_file.write(f"Total decompression errors encountered: {len(failed_decompression_list)}\n")
-    report_file.write("List of frame numbers that failed decompression (if any):\n")
-    if len(failed_decompression_list) > 0:
-        report_file.write("\n".join(i for i in failed_decompression_list) + "\n")
-    report_file.write(f"\nTotal number of frames not requiring decompression (compression flag set to 0): "
-                      f"{len(uncompressed_list)}\n")
-    report_file.write("List of frame numbers not requiring decompression (if any):\n")
-    if len(uncompressed_list) > 0:
-        report_file.write("\n".join(i for i in uncompressed_list) + "\n")
 
     # Check all frames have same number of bands
     num_bands_list.sort()
@@ -289,43 +337,55 @@ def main():
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
     seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[3])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))
+    # Convert to padded strings like other lists
+    missing_frame_nums = [str(num).zfill(5) for num in missing_frame_nums]
     missing_frame_nums.sort()
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
-    report_file.write(f"\nTotal missing frames encountered: {len(missing_frame_nums)}\n")
-    report_file.write("List of missing frame numbers (if any):\n")
-    if len(missing_frame_nums) > 0:
-        report_file.write("\n".join(str(i).zfill(5) for i in missing_frame_nums) + "\n")
-
     # Add missing paths into frame_data_paths list with acquisition status of "6" to indicate missing.
-    dcid = os.path.basename(frame_data_paths[0]).split("_")[0]
-    os_time_str = os.path.basename(frame_data_paths[0]).split("_")[1]
-    for frame_num_str in missing_frame_nums:
-        frame_data_paths.append(os.path.join(image_dir, "_".join([dcid, os_time_str, str(frame_num_str).zfill(5),
-                                                                    expected_frame_num_str, "6"])))
-    frame_data_paths.sort()
+    for num in missing_frame_nums:
+        frame_data_paths.append(
+            os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
+                                              num, expected_frame_num_str, "6"])))
+    frame_data_paths.sort(key=lambda x: x.split("_")[2])
 
+    # Loop through the frames and create acquisitions
     i = 0
     num_frames = len(frame_data_paths)
     frame_chunksize = min(args.chunksize // 32, num_frames)
-    # Loop through the frames and create acquisitions
-    while i + frame_chunksize <= num_frames and \
-            num_frames - (i + frame_chunksize) >= frame_chunksize:
+    report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // 32} frames\n"
+    report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * 32} lines or {frame_chunksize} " \
+        f"frames\n\n"
+    logger.info(f"Using frame chunksize of {frame_chunksize} to split data collection into acquisitions.")
+    # Only do the chunking if there is enough left over for another full chunk
+    while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
         reassemble_acquisition(acq_data_paths,
+                               i,
+                               i + frame_chunksize - 1,
                                start_stop_times[i][0],
                                start_stop_times[i + frame_chunksize - 1][1],
                                num_bands_list[0],
                                image_dir,
+                               report_txt,
+                               failed_decompression_list,
+                               uncompressed_list,
+                               missing_frame_nums,
                                logger)
         i += frame_chunksize
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
     reassemble_acquisition(acq_data_paths,
+                           i,
+                           num_frames - 1,
                            start_stop_times[i][0],
                            start_stop_times[num_frames - 1][1],
                            num_bands_list[0],
                            image_dir,
+                           report_txt,
+                           failed_decompression_list,
+                           uncompressed_list,
+                           missing_frame_nums,
                            logger)
 
     logger.info("Done")
