@@ -60,19 +60,20 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
-def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, num_bands, image_dir,
-                           report_text, failed_decompression_list, uncompressed_list, missing_frame_nums, logger):
+def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, num_bands, num_lines,
+                           image_dir, report_text, failed_decompression_list, uncompressed_list, missing_frame_nums,
+                           logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
     acquisition_id = "emit" + start_time.strftime("%Y%m%dt%H%M%S")
 
     hdr_path = os.path.join(image_dir, acquisition_id + "_raw.hdr")
-    num_lines = 32 * len(acq_data_paths)
+    num_lines_in_acq = num_lines * len(acq_data_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
         "samples": 1280,
-        "lines": num_lines,
+        "lines": num_lines_in_acq,
         "bands": num_bands,
         "header offset": 0,
         "file type": "ENVI",
@@ -97,20 +98,20 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
-            frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
+            frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         # Cloudy frames
         if status in (4, 5):
             cloudy_frame_nums.append(frame_num_str)
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
                             dtype=np.uint16)
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         # Missing frames
         if status == 6:
-            frame = np.full(shape=(32, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
                             dtype=np.uint16)
-            output[line:line + 32, :, :] = frame[:, :, :].copy()
-        line += 32
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+        line += num_lines
     del output
 
     # Create a reassembly report
@@ -125,7 +126,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f'Stop time: {stop_time}\n')
         f.write(f"Number of samples: 1280\n")
         f.write(f"Number of bands: {num_bands}\n")
-        f.write(f"Number of lines: {num_lines}\n\n")
+        f.write(f"Number of lines: {num_lines_in_acq}\n\n")
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
@@ -193,9 +194,6 @@ def main():
 
     args = parser.parse_args()
 
-    if args.chunksize % 32 != 0:
-        raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of 32")
-
     # Upper case the log level
     args.level = args.level.upper()
 
@@ -240,10 +238,12 @@ def main():
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
     num_bands_list = []
+    num_lines_list = []
     processed_flag_list = []
     coadd_mode_list = []
     failed_decompression_list = []
     uncompressed_list = []
+    line_counts = [None] * int(expected_frame_num_str)
     start_times_gps = [None] * int(expected_frame_num_str)
 
     # Process frame headers and write out compressed data files
@@ -296,8 +296,17 @@ def main():
         frame_num_index = int(os.path.basename(uncomp_frame_path).split(".")[0].split("_")[2])
         start_times_gps[frame_num_index] = uncomp_frame.start_time_gps
 
+        # Get line count for each frame
+        line_counts[frame_num_index] = uncomp_frame.line_count
+
         num_bands_list.append(uncomp_frame.num_bands)
         processed_flag_list.append(uncomp_frame.processed_flag)
+        # Num lines is only 64 in unprocessed frames where data size is 1280 * bands * 64 * 2
+        size_of_64 = 1280 * uncomp_frame.num_bands * 64 * 2
+        if uncomp_frame.processed_flag == 0 and uncomp_frame.data_size == size_of_64:
+            num_lines_list.append(64)
+        else:
+            num_lines_list.append(32)
         coadd_mode_list.append(uncomp_frame.coadd_mode)
 
         uncomp_data_path = uncomp_frame_path + "_no_header"
@@ -311,10 +320,17 @@ def main():
     uncompressed_list.sort()
 
     # Check all frames have same number of bands
-    num_bands_list.sort()
+    # num_bands_list.sort()
     for i in range(len(num_bands_list)):
         if num_bands_list[i] != num_bands_list[0]:
             raise RuntimeError(f"Not all frames have the same number of bands. See list of num_bands: {num_bands_list}")
+
+    # Check all frames have same number of lines
+    # num_lines_list.sort()
+    for i in range(len(num_lines_list)):
+        if num_lines_list[i] != num_lines_list[0]:
+            raise RuntimeError(
+                f"Not all frames have the same number of lines. See list of num_lines: {num_lines_list}")
 
     # Abort if any of the frames are not processed (i.e. they are from the raw partition)
     processed_flag_list.sort()
@@ -329,8 +345,17 @@ def main():
         if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
 
+    # Get number of bands and lines
+    num_bands = num_bands_list[0]
+    num_lines = num_lines_list[0]
+    if num_lines == 64:
+        logger.warning(f"Frame has 64 lines! This is untested territory and should only apply to data that has not "
+                       f"been processed!")
+
     # Calculate start/stop times for each frame
     start_stop_times = calculate_start_stop_times(start_times_gps)
+
+    # TODO: Calculate and check line counts
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
@@ -352,10 +377,13 @@ def main():
     # Loop through the frames and create acquisitions
     i = 0
     num_frames = len(frame_data_paths)
-    frame_chunksize = min(args.chunksize // 32, num_frames)
-    report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // 32} frames\n"
-    report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * 32} lines or {frame_chunksize} " \
-        f"frames\n\n"
+    if args.chunksize % num_lines != 0:
+        raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of {num_lines}")
+    frame_chunksize = min(args.chunksize // num_lines, num_frames)
+    report_txt += f"Number of lines per frame: {num_lines}\n"
+    report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // num_lines} frames\n"
+    report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * num_lines} lines or " \
+        f"{frame_chunksize} frames\n\n"
     logger.info(f"Using frame chunksize of {frame_chunksize} to split data collection into acquisitions.")
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
@@ -365,7 +393,8 @@ def main():
                                i + frame_chunksize - 1,
                                start_stop_times[i][0],
                                start_stop_times[i + frame_chunksize - 1][1],
-                               num_bands_list[0],
+                               num_bands,
+                               num_lines,
                                image_dir,
                                report_txt,
                                failed_decompression_list,
@@ -380,7 +409,8 @@ def main():
                            num_frames - 1,
                            start_stop_times[i][0],
                            start_stop_times[num_frames - 1][1],
-                           num_bands_list[0],
+                           num_bands,
+                           num_lines,
                            image_dir,
                            report_txt,
                            failed_decompression_list,
