@@ -103,7 +103,7 @@ class Frame:
     def save(self, out_dir):
         fname = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                           str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
-                          str(self.acq_status)])
+                          str(self.acq_status), str(self.processed_flag)])
 
         out_path = os.path.join(out_dir, fname)
 
