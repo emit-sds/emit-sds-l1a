@@ -344,7 +344,6 @@ class SciencePacketProcessor:
                     "Received EOFError when reading files. No more data to process"
                 )
                 raise EOFError
-            self._stats.frame_read()
 
     def _read_next_packet(self):
         while True:
@@ -524,6 +523,7 @@ class SciencePacketProcessor:
         frame = bytearray()
         for pkt in pkt_parts:
             frame += pkt.data
+        self._stats.frame_read()
         return frame
 
     def _locate_sync_word_index(self, sync_word, data):
