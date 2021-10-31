@@ -81,14 +81,17 @@ def main():
     logger.info(f"Processing stream file {tmp_stream_path}")
     processor = SciencePacketProcessor(tmp_stream_path, args.test_mode)
 
+    frame_count = 0
     while True:
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
             frame.save(frames_dir)
+            frame_count += 1
         except EOFError:
             break
 
+    logger.info(f"Total depacketized frames in stream file: {frame_count}")
     report_path = args.log_path.replace(".log", "_report.txt")
     processor.stats(out_file=report_path)
 
