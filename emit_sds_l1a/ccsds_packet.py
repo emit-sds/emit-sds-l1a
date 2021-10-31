@@ -240,6 +240,7 @@ class SDPProcessingStats:
             "bytes_read": 0,
             "bytes_read_since_last_index": 0,
             "last_pkt_size": 0,
+            "frames_read": 0,
             "truncated_frame_errors": 0,
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
@@ -279,6 +280,9 @@ class SDPProcessingStats:
         self._stats["invalid_pkt_errors"] += 1
         self._stats["invalid_psc"].append(f"{pkt.coarse_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
 
+    def frame_read(self):
+        self._stats["frames_read"] += 1
+
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
 
@@ -296,6 +300,7 @@ class SDPProcessingStats:
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
             f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
+            f"Total Frames Read: {self._stats['frames_read']}\n"
             f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
@@ -339,6 +344,7 @@ class SciencePacketProcessor:
                     "Received EOFError when reading files. No more data to process"
                 )
                 raise EOFError
+            self._stats.frame_read()
 
     def _read_next_packet(self):
         while True:
