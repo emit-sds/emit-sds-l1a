@@ -319,10 +319,9 @@ class SciencePacketProcessor:
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
 
-    def __init__(self, stream_path, test_mode):
+    def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
         self.stream = open(stream_path, "rb")
-        self.test_mode = test_mode
         self._cur_psc = -1
         self._cur_coarse = -1
         self._cur_fine = -1

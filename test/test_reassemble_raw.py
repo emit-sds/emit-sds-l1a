@@ -19,21 +19,23 @@ def test_reassemble_raw():
     compressed_frames_dir = os.path.join(data_dir, "compressed_frames")
     flex_exe = os.path.join(os.path.dirname(repo_dir), "EMIT_FLEX_codec", "flexcodec")
     constants_txt = os.path.join(data_dir, "compression_inputs", "constants.txt")
-    init_data_bin = os.path.join(data_dir, "compression_inputs", "init_data.bin")
-    out_dir = os.path.join(test_dir, "out_reassemble_raw")
-    log_path = os.path.join(out_dir, "test_run.log")
+    init_data_bin = os.path.join(data_dir, "compression_inputs",
+                                 "FPGA_Data_Initialization_File_CREATE_COMPRESSION_INIT_DATA_328_e0.bin")
+    work_dir = os.path.join(test_dir, "work_reassemble_raw")
+    log_path = os.path.join(work_dir, "test_run.log")
 
     cmd = ["python", reassemble_raw_exe, compressed_frames_dir,
            "--flexcodec_exe", flex_exe,
            "--constants_path", constants_txt,
            "--init_data_path", init_data_bin,
-           "--out_dir", out_dir,
+           "--work_dir", work_dir,
            "--log_path", log_path,
-           "--level", "DEBUG"]
+           "--level", "DEBUG",
+           "--test_mode"]
 
     output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
     if output.returncode != 0:
         print(output.stderr.decode("utf-8"))
     if output.returncode == 0:
-        os.system(f"rm -rf {out_dir}")
+        os.system(f"rm -rf {work_dir}")
     assert output.returncode == 0
