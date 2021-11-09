@@ -188,7 +188,7 @@ def main():
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
-    parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=1280)
+    parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=320000)
     parser.add_argument("--test_mode", action="store_true",
                         help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
