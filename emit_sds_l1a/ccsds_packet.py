@@ -240,6 +240,7 @@ class SDPProcessingStats:
             "bytes_read": 0,
             "bytes_read_since_last_index": 0,
             "last_pkt_size": 0,
+            "frames_read": 0,
             "truncated_frame_errors": 0,
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
@@ -279,6 +280,9 @@ class SDPProcessingStats:
         self._stats["invalid_pkt_errors"] += 1
         self._stats["invalid_psc"].append(f"{pkt.coarse_time}_{pkt.fine_time}_{pkt.pkt_seq_cnt}")
 
+    def frame_read(self):
+        self._stats["frames_read"] += 1
+
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
 
@@ -290,11 +294,13 @@ class SDPProcessingStats:
         invalid_pscs_str = "\n".join([i for i in self._stats["invalid_psc"]])
 
         return (
+            "--------------------\n"
             "SDP PROCESSING STATS\n"
             "--------------------\n\n"
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
             f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
+            f"Total Frames Read: {self._stats['frames_read']}\n"
             f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
@@ -313,10 +319,9 @@ class SciencePacketProcessor:
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
 
-    def __init__(self, stream_path, test_mode):
+    def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
         self.stream = open(stream_path, "rb")
-        self.test_mode = test_mode
         self._cur_psc = -1
         self._cur_coarse = -1
         self._cur_fine = -1
@@ -517,6 +522,7 @@ class SciencePacketProcessor:
         frame = bytearray()
         for pkt in pkt_parts:
             frame += pkt.data
+        self._stats.frame_read()
         return frame
 
     def _locate_sync_word_index(self, sync_word, data):
