@@ -33,7 +33,7 @@ def test_reassemble_raw():
            "--level", "DEBUG",
            "--test_mode"]
 
-    output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
+    output = subprocess.run(" ".join(cmd), shell=True, capture_output=True, env=os.environ.copy())
     if output.returncode != 0:
         print(output.stderr.decode("utf-8"))
     if output.returncode == 0:

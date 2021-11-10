@@ -25,7 +25,7 @@ def test_depacketize_science_frames():
            "--log_path", log_path,
            "--level", "DEBUG"]
 
-    output = subprocess.run(" ".join(cmd), shell=True, capture_output=True)
+    output = subprocess.run(" ".join(cmd), shell=True, capture_output=True, env=os.environ.copy())
     if output.returncode != 0:
         print(output.stderr.decode("utf-8"))
     if output.returncode == 0:
