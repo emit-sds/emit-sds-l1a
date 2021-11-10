@@ -60,9 +60,9 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
-def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, num_bands, num_lines,
-                           image_dir, report_text, failed_decompression_list, uncompressed_list, missing_frame_nums,
-                           logger):
+def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, num_bands,
+                           num_lines, image_dir, report_text, failed_decompression_list, uncompressed_list,
+                           missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -130,6 +130,23 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
+
+        # Get timing info using loop in case the timing info is missing on the first frame.
+        timing_info_found = False
+        for i in range(start_index, stop_index + 1):
+            if timing_info[i]['line_timestamp'] != -1:
+                f.write(f"Line timestamp of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['line_timestamp']}\n")
+                f.write(f"OS time timestamp of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['os_time_timestamp']}\n")
+                f.write(f"OS time of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['os_time']}\n\n")
+                timing_info_found = True
+                break
+        if not timing_info_found:
+            f.write(f"Line timestamp of first available frame in acquisition: -1\n")
+            f.write(f"OS time timestamp of first available frame in acquisition: -1\n")
+            f.write(f"OS time of first available frame in acquisition: -1\n\n")
 
         # Get list of acquisition frame nums and convert to padded strings like other lists
         acquisition_frame_nums = list(range(start_index, stop_index + 1))
@@ -245,6 +262,8 @@ def main():
     uncompressed_list = []
     line_counts = [None] * int(expected_frame_num_str)
     start_times_gps = [None] * int(expected_frame_num_str)
+    timing_info = [{"line_timestamp": -1, "os_time_timestamp": -1, "os_time": -1}
+                   for x in range(int(expected_frame_num_str))]
 
     # Process frame headers and write out compressed data files
     for path in frame_paths:
@@ -298,6 +317,13 @@ def main():
 
         # Get line count for each frame
         line_counts[frame_num_index] = uncomp_frame.line_count
+
+        # Get timing infor for each frame
+        timing_info[frame_num_index] = {
+            "line_timestamp": uncomp_frame.line_timestamp,
+            "os_time_timestamp": uncomp_frame.os_time_timestamp,
+            "os_time": uncomp_frame.os_time
+        }
 
         num_bands_list.append(uncomp_frame.num_bands)
         processed_flag_list.append(uncomp_frame.processed_flag)
@@ -388,35 +414,37 @@ def main():
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
-        reassemble_acquisition(acq_data_paths,
-                               i,
-                               i + frame_chunksize - 1,
-                               start_stop_times[i][0],
-                               start_stop_times[i + frame_chunksize - 1][1],
-                               num_bands,
-                               num_lines,
-                               image_dir,
-                               report_txt,
-                               failed_decompression_list,
-                               uncompressed_list,
-                               missing_frame_nums,
-                               logger)
+        reassemble_acquisition(acq_data_paths=acq_data_paths,
+                               start_index=i,
+                               stop_index=i + frame_chunksize - 1,
+                               start_time=start_stop_times[i][0],
+                               stop_time=start_stop_times[i + frame_chunksize - 1][1],
+                               timing_info=timing_info,
+                               num_bands=num_bands,
+                               num_lines=num_lines,
+                               image_dir=image_dir,
+                               report_text=report_txt,
+                               failed_decompression_list=failed_decompression_list,
+                               uncompressed_list=uncompressed_list,
+                               missing_frame_nums=missing_frame_nums,
+                               logger=logger)
         i += frame_chunksize
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
-    reassemble_acquisition(acq_data_paths,
-                           i,
-                           num_frames - 1,
-                           start_stop_times[i][0],
-                           start_stop_times[num_frames - 1][1],
-                           num_bands,
-                           num_lines,
-                           image_dir,
-                           report_txt,
-                           failed_decompression_list,
-                           uncompressed_list,
-                           missing_frame_nums,
-                           logger)
+    reassemble_acquisition(acq_data_paths=acq_data_paths,
+                           start_index=i,
+                           stop_index=num_frames - 1,
+                           start_time=start_stop_times[i][0],
+                           stop_time=start_stop_times[num_frames - 1][1],
+                           timing_info=timing_info,
+                           num_bands=num_bands,
+                           num_lines=num_lines,
+                           image_dir=image_dir,
+                           report_text=report_txt,
+                           failed_decompression_list=failed_decompression_list,
+                           uncompressed_list=uncompressed_list,
+                           missing_frame_nums=missing_frame_nums,
+                           logger=logger)
 
     logger.info("Done")
 
