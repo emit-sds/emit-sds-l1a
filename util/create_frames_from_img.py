@@ -23,7 +23,7 @@ def main():
     lines = int(hdr['lines'])
     bands = int(hdr['bands'])
     samples = int(hdr['samples'])
-    img = np.memmap(input_path, shape=(lines, bands, samples), dtype=np.uint16, mode="r")
+    img = np.memmap(input_path, shape=(lines, bands, samples), dtype=np.int16, mode="r")
 
     hdr["lines"] = 32
     line = start_line

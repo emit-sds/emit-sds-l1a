@@ -98,18 +98,18 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
-            frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         # Cloudy frames
         if status in (4, 5):
             cloudy_frame_nums.append(frame_num_str)
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
-                            dtype=np.uint16)
+                            dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         # Missing frames
         if status == 6:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
-                            dtype=np.uint16)
+                            dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         line += num_lines
     del output
