@@ -8,7 +8,6 @@ import datetime as dt
 import logging
 import numpy as np
 import os
-import time
 
 from ait.core import dmc
 
