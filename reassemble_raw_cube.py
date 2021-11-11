@@ -22,8 +22,11 @@ import spectral.io.envi as envi
 from emit_sds_l1a.frame import Frame
 
 # TODO: Different flags for missing frame vs. missing portion of frame?
-MISSING_DATA_FLAG = -9998
-CLOUDY_DATA_FLAG = -9997
+NODATA_VALUE = -9999
+MISSING_FRAME_FLAG = -9998
+CORRUPT_FRAME_FLAG = -9997
+CORRUPT_LINE_FLAG = -9996
+CLOUDY_FRAME_FLAG = -9990
 
 
 def get_utc_time_from_gps(gps_time):
@@ -85,7 +88,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     envi.write_envi_header(hdr_path, hdr)
     out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
     output = out_file.open_memmap(interleave="source", writable=True)
-    output[:, :, :] = -9999
+    output[:, :, :] = NODATA_VALUE
 
     logger.debug(f"Assembling frames into raw file with header {hdr_path}")
     logger.debug(f"Start time: {start_time}, Stop time: {stop_time}")
@@ -103,13 +106,18 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         # Cloudy frames
         if status in (4, 5):
             cloudy_frame_nums.append(frame_num_str)
-            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_FRAME_FLAG,
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         # Missing frames
         if status == 6:
-            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_FRAME_FLAG,
                             dtype=np.int16)
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+        # Failed decompression
+        if status == 7:
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
+                            fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
         line += num_lines
     del output
@@ -152,6 +160,18 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         acquisition_frame_nums = list(range(start_index, stop_index + 1))
         acquisition_frame_nums = [str(num).zfill(5) for num in acquisition_frame_nums]
 
+        # Report on uncompressed frames
+        uncompressed_in_acq = list(set(acquisition_frame_nums) & set(uncompressed_list))
+        uncompressed_in_acq.sort()
+
+        f.write(f"Total number of frames not requiring decompression in this acquisition "
+                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
+        f.write("List of frame numbers not requiring decompression (if any):\n")
+        if len(uncompressed_in_acq) > 0:
+            f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
+        f.write("\n")
+
+        # Report on corrupt frames (frames that failed decompression)
         failed_decompression_in_acq = list(set(acquisition_frame_nums) & set(failed_decompression_list))
         failed_decompression_in_acq.sort()
 
@@ -159,29 +179,25 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write("List of frame numbers that failed decompression (if any):\n")
         if len(failed_decompression_in_acq) > 0:
             f.write("\n".join(i for i in failed_decompression_in_acq) + "\n")
+        f.write("\n")
 
-        uncompressed_in_acq = list(set(acquisition_frame_nums) & set(uncompressed_list))
-        uncompressed_in_acq.sort()
-
-        f.write(f"\nTotal number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
-        f.write("List of frame numbers not requiring decompression (if any):\n")
-        if len(uncompressed_in_acq) > 0:
-            f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
-
+        # Report on missing frames
         missing_frame_nums_in_acq = list(set(acquisition_frame_nums) & set(missing_frame_nums))
         missing_frame_nums_in_acq.sort()
 
-        f.write(f"\nTotal missing frames encountered in this acquisition: {len(missing_frame_nums_in_acq)}\n")
+        f.write(f"Total missing frames encountered in this acquisition: {len(missing_frame_nums_in_acq)}\n")
         f.write("List of missing frame numbers (if any):\n")
         if len(missing_frame_nums_in_acq) > 0:
             f.write("\n".join(i for i in missing_frame_nums_in_acq) + "\n")
+        f.write("\n")
 
+        # Report on cloudy frames
         cloudy_frame_nums.sort()
-        f.write(f"\nTotal cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
+        f.write(f"Total cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
         f.write(f"List of cloudy frame numbers (if any):\n")
         if len(cloudy_frame_nums) > 0:
             f.write("\n".join(i for i in cloudy_frame_nums))
+        f.write("\n")
 
 
 def main():
@@ -379,9 +395,8 @@ def main():
                        f"been processed!")
 
     # Calculate start/stop times for each frame
+    # TODO: Raise error if only 1 data point
     start_stop_times = calculate_start_stop_times(start_times_gps)
-
-    # TODO: Calculate and check line counts
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
@@ -391,13 +406,24 @@ def main():
     # Convert to padded strings like other lists
     missing_frame_nums = [str(num).zfill(5) for num in missing_frame_nums]
     missing_frame_nums.sort()
+    # Now remove failed decompression frame nums from missing frame nums list
+    missing_frame_nums = list(set(missing_frame_nums) - set(failed_decompression_list))
+
+    logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
+
 
     # Add missing paths into frame_data_paths list with acquisition status of "6" to indicate missing.
     for num in missing_frame_nums:
         frame_data_paths.append(
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
                                               num, expected_frame_num_str, "6"])))
+
+    # Add failed decompressions into frame_data_paths list with acquisition status of "" to indicate failed.
+    for num in failed_decompression_list:
+        frame_data_paths.append(
+            os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
+                                              num, expected_frame_num_str, "7"])))
     frame_data_paths.sort(key=lambda x: x.split("_")[2])
 
     # Loop through the frames and create acquisitions
