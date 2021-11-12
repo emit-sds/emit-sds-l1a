@@ -80,15 +80,13 @@ def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str
         prev_line_count = line_count
 
     if good_index is None:
-        # This seems very unlikely as it would mean that all or most of the line counts were corrupt
-        logger.warning(f"Could not find incremental line counts in frame number of {frame_num_str}.")
         return None
 
     # Now populate the line count lookups
     num_lines_in_acq = (stop_index - start_index + 1) * num_lines
     lc_lookup = [None] * num_lines_in_acq
     for i in range(num_lines_in_acq):
-        lc_lookup[i] = ((i - good_index) * increment) + good_line_count
+        lc_lookup[i] = (((i - good_index) * increment) + good_line_count) % NUM_32_BIT_UINTS
 
     return lc_lookup
 
@@ -140,9 +138,9 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     output = out_file.open_memmap(interleave="source", writable=True)
     output[:, :, :] = NODATA_VALUE
 
-    logger.debug(f"Assembling frames into raw file with header {hdr_path}")
+    logger.info(f"Assembling frames into raw file with header {hdr_path}")
     logger.debug(f"Start time: {start_time}, Stop time: {stop_time}")
-    # TODO: Round to nearest second?
+
     cloudy_frame_nums = []
     line = 0
     lt_file = open(line_timestamps_path, "w")
@@ -153,7 +151,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
         start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
-        logger.debug(f"Adding frame {path}")
+        logger.info(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
             # Write frame to output array
@@ -168,7 +166,11 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                 lc_lookup = generate_line_count_lookup(line_headers, num_lines, lc_increment, frame_num_str, start_index, stop_index, logger)
                 # If lc_lookup is still unpopulated it means the entire frame had corrupt lines
                 if lc_lookup is None:
+                    # This seems very unlikely as it would mean that all or most of the line counts were corrupt
+                    logger.warning(f"Could not find incremental line counts in frame number {frame_num_str}.")
                     corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
+                else:
+                    logger.info(f"Found a good line count in frame {frame_num_str} and generated a line count lookup.")
 
             # Loop through lines and print out line timestamps and flag corrupt lines
             for i in range(num_lines):
@@ -188,6 +190,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                 lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(nanosecs_since_gps).zfill(19)} "
                               f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
 
+                if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
+                    corrupt_lines.append(start_line_in_frame + i)
 
         # Cloudy frames
         if status in (4, 5):
@@ -293,6 +297,17 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"List of cloudy frame numbers (if any):\n")
         if len(cloudy_frame_nums) > 0:
             f.write("\n".join(i for i in cloudy_frame_nums))
+        f.write("\n")
+
+        # Report on corrupted lines (line count mismatch):
+        f.write(f"Total corrupt lines (line count mismatches) in this acquisition: {len(corrupt_lines)}\n")
+        f.write(f"List of corrupt lines (if any):\n")
+        if len(corrupt_lines) > 0:
+            for i, frame_num in enumerate(cloudy_frame_nums):
+                if i > 100:
+                    f.write(f"More than 100 corrupt lines. See line timestamp file.\n")
+                    break
+                f.write(f"{cloudy_frame_nums[i]}\n")
         f.write("\n")
 
 
