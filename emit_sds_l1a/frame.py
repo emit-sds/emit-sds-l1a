@@ -13,7 +13,7 @@ from ait.core import dmc
 
 logger = logging.getLogger("emit-sds-l1a")
 
-MAX_32BIT_UNSIGNED_INT = 4294967295
+NUM_32_BIT_UINTS = 4294967296
 
 
 class Frame:
@@ -74,7 +74,7 @@ class Frame:
     def _calc_start_time_gps(self):
         line_timestamp = self.line_timestamp
         if self.line_timestamp < self.os_time_timestamp:
-            line_timestamp = self.line_timestamp + MAX_32BIT_UNSIGNED_INT
+            line_timestamp = self.line_timestamp + NUM_32_BIT_UINTS
         # timestamp counter runs at 100,000 ticks per second.
         # convert to nanoseconds by dividing by 10^5 and then multiplying by 10^9 (or just multiply by 10^4)
         nanoseconds_offset = (line_timestamp - self.os_time_timestamp) * 10 ** 4

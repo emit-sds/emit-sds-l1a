@@ -21,7 +21,7 @@ import spectral.io.envi as envi
 
 from emit_sds_l1a.frame import Frame
 
-# TODO: Different flags for missing frame vs. missing portion of frame?
+NUM_32_BIT_UINTS = 4294967296
 NODATA_VALUE = -9999
 MISSING_FRAME_FLAG = -9998
 CORRUPT_FRAME_FLAG = -9997
@@ -63,8 +63,57 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
-def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, num_bands,
-                           num_lines, image_dir, report_text, failed_decompression_list, uncompressed_list,
+def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str, start_index, stop_index, logger):
+    # Return the line count lookup based on line headers and frame num
+    # First, try to find two "good" lines with correct increment.
+    prev_line_count = None
+    good_index = None
+    good_line_count = None
+    for i in range(num_lines):
+        line_hdr = line_headers[i, :]
+        line_hdr_bytes = bytearray(line_hdr)
+        line_count = int.from_bytes(line_hdr_bytes[4:8], byteorder="little", signed=False)
+        if prev_line_count is not None and line_count - prev_line_count == increment:
+            good_index = (int(frame_num_str) - start_index) * num_lines + i
+            good_line_count = line_count
+            break
+        prev_line_count = line_count
+
+    if good_index is None:
+        # This seems very unlikely as it would mean that all or most of the line counts were corrupt
+        logger.warning(f"Could not find incremental line counts in frame number of {frame_num_str}.")
+        return None
+
+    # Now populate the line count lookups
+    num_lines_in_acq = (stop_index - start_index + 1) * num_lines
+    lc_lookup = [None] * num_lines_in_acq
+    for i in range(num_lines_in_acq):
+        lc_lookup[i] = ((i - good_index) * increment) + good_line_count
+
+    return lc_lookup
+
+
+def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
+    # Need to adjust line timestamp in the case where the clock rolls over (which happens about every 12 hours)
+    if line_timestamp < os_time_timestamp:
+        line_timestamp = line_timestamp + NUM_32_BIT_UINTS
+    # timestamp counter runs at 100,000 ticks per second.
+    # convert to nanoseconds by dividing by 10^5 and then multiplying by 10^9 (or just multiply by 10^4)
+    line_offset_nanoseconds = (line_timestamp - os_time_timestamp) * 10 ** 4
+    # OS time is in nanoseconds since GPS epoch
+    return os_time + line_offset_nanoseconds
+
+
+def get_utc_time_from_gps(gps_time):
+    # Convert gps_time in nanoseconds to a timestamp in utc
+    d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+    utc_time = d - dt.timedelta(seconds=offset)
+    return utc_time
+
+
+def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
+                           num_bands, num_lines, image_dir, report_text, failed_decompression_list, uncompressed_list,
                            missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
@@ -72,6 +121,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     acquisition_id = "emit" + start_time.strftime("%Y%m%dt%H%M%S")
 
     hdr_path = os.path.join(image_dir, acquisition_id + "_raw.hdr")
+    line_timestamps_path = hdr_path.replace("raw.hdr", "line_timestamps.txt")
     num_lines_in_acq = num_lines * len(acq_data_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
@@ -95,32 +145,78 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     # TODO: Round to nearest second?
     cloudy_frame_nums = []
     line = 0
+    lt_file = open(line_timestamps_path, "w")
+    lc_increment = 2 if processed_flag == 1 else 1
+    lc_lookup = None
+    corrupt_lines = []
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
+        start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
         logger.debug(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
+            # Write frame to output array
             frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+
+            # Read line headers and process below
+            line_headers = frame[:, 0, :]
+
+            # Populate line count lookup if not yet populated
+            if lc_lookup is None:
+                lc_lookup = generate_line_count_lookup(line_headers, num_lines, lc_increment, frame_num_str, start_index, stop_index, logger)
+                # If lc_lookup is still unpopulated it means the entire frame had corrupt lines
+                if lc_lookup is None:
+                    corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
+
+            # Loop through lines and print out line timestamps and flag corrupt lines
+            for i in range(num_lines):
+                # Get line header and convert to byte array
+                line_hdr = line_headers[i, :]
+                line_hdr_bytes = bytearray(line_hdr)
+                line_timestamp = int.from_bytes(line_hdr_bytes[0:4], byteorder="little", signed=False)
+                line_count = int.from_bytes(line_hdr_bytes[4:8], byteorder="little", signed=False)
+
+                # Print out line timestamps
+                nanosecs_since_gps = calculate_nanoseconds_since_gps_epoch(
+                    line_timestamp=line_timestamp,
+                    os_time_timestamp=timing_info[int(frame_num_str)]['os_time_timestamp'],
+                    os_time=timing_info[int(frame_num_str)]['os_time']
+                )
+                utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(nanosecs_since_gps).zfill(19)} "
+                              f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
+
+
         # Cloudy frames
         if status in (4, 5):
             cloudy_frame_nums.append(frame_num_str)
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_FRAME_FLAG,
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         # Missing frames
         if status == 6:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_FRAME_FLAG,
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         # Failed decompression
         if status == 7:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
                             fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         line += num_lines
     del output
+    lt_file.close()
 
     # Create a reassembly report
     report_path = hdr_path.replace("_raw.hdr", "_report.txt")
@@ -380,6 +476,7 @@ def main():
         if not args.test_mode and processed_flag == 0:
             raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
                                f"{processed_flag_list}")
+    processed_flag = processed_flag_list[0]
 
     # Abort if coadd mode set to 0
     coadd_mode_list.sort()
@@ -432,6 +529,7 @@ def main():
     if args.chunksize % num_lines != 0:
         raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of {num_lines}")
     frame_chunksize = min(args.chunksize // num_lines, num_frames)
+    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
     report_txt += f"Number of lines per frame: {num_lines}\n"
     report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // num_lines} frames\n"
     report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * num_lines} lines or " \
@@ -446,6 +544,7 @@ def main():
                                start_time=start_stop_times[i][0],
                                stop_time=start_stop_times[i + frame_chunksize - 1][1],
                                timing_info=timing_info,
+                               processed_flag=processed_flag,
                                num_bands=num_bands,
                                num_lines=num_lines,
                                image_dir=image_dir,
@@ -463,6 +562,7 @@ def main():
                            start_time=start_stop_times[i][0],
                            stop_time=start_stop_times[num_frames - 1][1],
                            timing_info=timing_info,
+                           processed_flag=processed_flag,
                            num_bands=num_bands,
                            num_lines=num_lines,
                            image_dir=image_dir,
