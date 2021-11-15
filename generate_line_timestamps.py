@@ -113,9 +113,9 @@ def main():
             line_timestamp = int.from_bytes(line_hdr_bytes[0:4], byteorder="little", signed=False)
             line_count = int.from_bytes(line_hdr_bytes[4:8], byteorder="little", signed=False)
             nanosecs_since_gps = calculate_nanoseconds_since_gps_epoch(
-                    line_timestamp=line_timestamp,
-                    os_time_timestamp=args.os_time_timestamp,
-                    os_time=args.os_time
+                line_timestamp=line_timestamp,
+                os_time_timestamp=args.os_time_timestamp,
+                os_time=args.os_time
             )
             utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
             out_arr.append([i, nanosecs_since_gps, utc_time_str, line_timestamp, line_count])

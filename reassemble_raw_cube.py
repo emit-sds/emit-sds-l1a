@@ -525,7 +525,6 @@ def main():
     logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
-
     # Add missing paths into frame_data_paths list with acquisition status of "6" to indicate missing.
     for num in missing_frame_nums:
         frame_data_paths.append(
