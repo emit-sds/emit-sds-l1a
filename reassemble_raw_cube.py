@@ -21,9 +21,12 @@ import spectral.io.envi as envi
 
 from emit_sds_l1a.frame import Frame
 
-# TODO: Different flags for missing frame vs. missing portion of frame?
-MISSING_DATA_FLAG = -9998
-CLOUDY_DATA_FLAG = -9997
+NUM_32_BIT_UINTS = 4294967296
+NODATA_VALUE = -9999
+MISSING_FRAME_FLAG = -9998
+CORRUPT_FRAME_FLAG = -9997
+CORRUPT_LINE_FLAG = -9996
+CLOUDY_FRAME_FLAG = -9990
 
 
 def get_utc_time_from_gps(gps_time):
@@ -60,15 +63,63 @@ def calculate_start_stop_times(start_times_gps):
     return start_stop_times
 
 
-def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, num_bands, num_lines,
-                           image_dir, report_text, failed_decompression_list, uncompressed_list, missing_frame_nums,
-                           logger):
+def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str, start_index, stop_index, logger):
+    # Return the line count lookup based on line headers and frame num
+    # First, try to find two "good" lines with correct increment.
+    prev_line_count = None
+    good_index = None
+    good_line_count = None
+    for i in range(num_lines):
+        line_hdr = line_headers[i, :]
+        line_hdr_bytes = bytearray(line_hdr)
+        line_count = int.from_bytes(line_hdr_bytes[4:8], byteorder="little", signed=False)
+        if prev_line_count is not None and line_count - prev_line_count == increment:
+            good_index = (int(frame_num_str) - start_index) * num_lines + i
+            good_line_count = line_count
+            break
+        prev_line_count = line_count
+
+    if good_index is None:
+        return None
+
+    # Now populate the line count lookups
+    num_lines_in_acq = (stop_index - start_index + 1) * num_lines
+    lc_lookup = [None] * num_lines_in_acq
+    for i in range(num_lines_in_acq):
+        lc_lookup[i] = (((i - good_index) * increment) + good_line_count) % NUM_32_BIT_UINTS
+
+    return lc_lookup
+
+
+def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
+    # Need to adjust line timestamp in the case where the clock rolls over (which happens about every 12 hours)
+    if line_timestamp < os_time_timestamp:
+        line_timestamp = line_timestamp + NUM_32_BIT_UINTS
+    # timestamp counter runs at 100,000 ticks per second.
+    # convert to nanoseconds by dividing by 10^5 and then multiplying by 10^9 (or just multiply by 10^4)
+    line_offset_nanoseconds = (line_timestamp - os_time_timestamp) * 10 ** 4
+    # OS time is in nanoseconds since GPS epoch
+    return os_time + line_offset_nanoseconds
+
+
+def get_utc_time_from_gps(gps_time):
+    # Convert gps_time in nanoseconds to a timestamp in utc
+    d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+    utc_time = d - dt.timedelta(seconds=offset)
+    return utc_time
+
+
+def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
+                           num_bands, num_lines, image_dir, report_text, failed_decompression_list, uncompressed_list,
+                           missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
     acquisition_id = "emit" + start_time.strftime("%Y%m%dt%H%M%S")
 
     hdr_path = os.path.join(image_dir, acquisition_id + "_raw.hdr")
+    line_timestamps_path = hdr_path.replace("raw.hdr", "line_timestamps.txt")
     num_lines_in_acq = num_lines * len(acq_data_paths)
     hdr = {
         "description": "EMIT L1A raw instrument data (units: DN)",
@@ -85,34 +136,92 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     envi.write_envi_header(hdr_path, hdr)
     out_file = envi.create_image(hdr_path, hdr, ext="img", force=True)
     output = out_file.open_memmap(interleave="source", writable=True)
-    output[:, :, :] = -9999
+    output[:, :, :] = NODATA_VALUE
 
-    logger.debug(f"Assembling frames into raw file with header {hdr_path}")
+    logger.info(f"Assembling frames into raw file with header {hdr_path}")
     logger.debug(f"Start time: {start_time}, Stop time: {stop_time}")
-    # TODO: Round to nearest second?
+
     cloudy_frame_nums = []
     line = 0
+    lt_file = open(line_timestamps_path, "w")
+    lc_increment = 2 if processed_flag == 1 else 1
+    lc_lookup = None
+    corrupt_lines = []
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
-        logger.debug(f"Adding frame {path}")
+        start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
+        logger.info(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
-            frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+            # Write frame to output array
+            frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+
+            # Read line headers and process below
+            line_headers = frame[:, 0, :]
+
+            # Populate line count lookup if not yet populated
+            if lc_lookup is None:
+                lc_lookup = generate_line_count_lookup(line_headers, num_lines, lc_increment, frame_num_str, start_index, stop_index, logger)
+                # If lc_lookup is still unpopulated it means the entire frame had corrupt lines
+                if lc_lookup is None:
+                    # This seems very unlikely as it would mean that all or most of the line counts were corrupt
+                    logger.warning(f"Could not find incremental line counts in frame number {frame_num_str}.")
+                    corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
+                else:
+                    logger.info(f"Found a good line count in frame {frame_num_str} and generated a line count lookup.")
+
+            # Loop through lines and print out line timestamps and flag corrupt lines
+            for i in range(num_lines):
+                # Get line header and convert to byte array
+                line_hdr = line_headers[i, :]
+                line_hdr_bytes = bytearray(line_hdr)
+                line_timestamp = int.from_bytes(line_hdr_bytes[0:4], byteorder="little", signed=False)
+                line_count = int.from_bytes(line_hdr_bytes[4:8], byteorder="little", signed=False)
+
+                # Print out line timestamps
+                nanosecs_since_gps = calculate_nanoseconds_since_gps_epoch(
+                    line_timestamp=line_timestamp,
+                    os_time_timestamp=timing_info[int(frame_num_str)]['os_time_timestamp'],
+                    os_time=timing_info[int(frame_num_str)]['os_time']
+                )
+                utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(nanosecs_since_gps).zfill(19)} "
+                              f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
+
+                if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
+                    logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
+                    corrupt_lines.append(start_line_in_frame + i)
+
         # Cloudy frames
         if status in (4, 5):
             cloudy_frame_nums.append(frame_num_str)
-            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_DATA_FLAG,
-                            dtype=np.uint16)
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=CLOUDY_FRAME_FLAG,
+                            dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         # Missing frames
         if status == 6:
-            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_DATA_FLAG,
-                            dtype=np.uint16)
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_FRAME_FLAG,
+                            dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+        # Failed decompression
+        if status == 7:
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
+                            fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         line += num_lines
     del output
+    lt_file.close()
 
     # Create a reassembly report
     report_path = hdr_path.replace("_raw.hdr", "_report.txt")
@@ -131,10 +240,39 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
 
+        # Get timing info using loop in case the timing info is missing on the first frame.
+        timing_info_found = False
+        for i in range(start_index, stop_index + 1):
+            if timing_info[i]['line_timestamp'] != -1:
+                f.write(f"Line timestamp of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['line_timestamp']}\n")
+                f.write(f"OS time timestamp of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['os_time_timestamp']}\n")
+                f.write(f"OS time of first available frame ({str(i).zfill(5)}) in acquisition: "
+                        f"{timing_info[i]['os_time']}\n\n")
+                timing_info_found = True
+                break
+        if not timing_info_found:
+            f.write(f"Line timestamp of first available frame in acquisition: -1\n")
+            f.write(f"OS time timestamp of first available frame in acquisition: -1\n")
+            f.write(f"OS time of first available frame in acquisition: -1\n\n")
+
         # Get list of acquisition frame nums and convert to padded strings like other lists
         acquisition_frame_nums = list(range(start_index, stop_index + 1))
         acquisition_frame_nums = [str(num).zfill(5) for num in acquisition_frame_nums]
 
+        # Report on uncompressed frames
+        uncompressed_in_acq = list(set(acquisition_frame_nums) & set(uncompressed_list))
+        uncompressed_in_acq.sort()
+
+        f.write(f"Total number of frames not requiring decompression in this acquisition "
+                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
+        f.write("List of frame numbers not requiring decompression (if any):\n")
+        if len(uncompressed_in_acq) > 0:
+            f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
+        f.write("\n")
+
+        # Report on corrupt frames (frames that failed decompression)
         failed_decompression_in_acq = list(set(acquisition_frame_nums) & set(failed_decompression_list))
         failed_decompression_in_acq.sort()
 
@@ -142,29 +280,36 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write("List of frame numbers that failed decompression (if any):\n")
         if len(failed_decompression_in_acq) > 0:
             f.write("\n".join(i for i in failed_decompression_in_acq) + "\n")
+        f.write("\n")
 
-        uncompressed_in_acq = list(set(acquisition_frame_nums) & set(uncompressed_list))
-        uncompressed_in_acq.sort()
-
-        f.write(f"\nTotal number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
-        f.write("List of frame numbers not requiring decompression (if any):\n")
-        if len(uncompressed_in_acq) > 0:
-            f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
-
+        # Report on missing frames
         missing_frame_nums_in_acq = list(set(acquisition_frame_nums) & set(missing_frame_nums))
         missing_frame_nums_in_acq.sort()
 
-        f.write(f"\nTotal missing frames encountered in this acquisition: {len(missing_frame_nums_in_acq)}\n")
+        f.write(f"Total missing frames encountered in this acquisition: {len(missing_frame_nums_in_acq)}\n")
         f.write("List of missing frame numbers (if any):\n")
         if len(missing_frame_nums_in_acq) > 0:
             f.write("\n".join(i for i in missing_frame_nums_in_acq) + "\n")
+        f.write("\n")
 
+        # Report on cloudy frames
         cloudy_frame_nums.sort()
-        f.write(f"\nTotal cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
+        f.write(f"Total cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
         f.write(f"List of cloudy frame numbers (if any):\n")
         if len(cloudy_frame_nums) > 0:
             f.write("\n".join(i for i in cloudy_frame_nums))
+        f.write("\n")
+
+        # Report on corrupted lines (line count mismatch):
+        f.write(f"Total corrupt lines (line count mismatches) in this acquisition: {len(corrupt_lines)}\n")
+        f.write(f"List of corrupt lines (if any):\n")
+        if len(corrupt_lines) > 0:
+            for i, line_num in enumerate(corrupt_lines):
+                if i > 100:
+                    f.write(f"More than 100 corrupt lines. See line timestamp file.\n")
+                    break
+                f.write(f"{str(line_num).zfill(6)}\n")
+        f.write("\n")
 
 
 def main():
@@ -245,6 +390,8 @@ def main():
     uncompressed_list = []
     line_counts = [None] * int(expected_frame_num_str)
     start_times_gps = [None] * int(expected_frame_num_str)
+    timing_info = [{"line_timestamp": -1, "os_time_timestamp": -1, "os_time": -1}
+                   for x in range(int(expected_frame_num_str))]
 
     # Process frame headers and write out compressed data files
     for path in frame_paths:
@@ -299,6 +446,13 @@ def main():
         # Get line count for each frame
         line_counts[frame_num_index] = uncomp_frame.line_count
 
+        # Get timing infor for each frame
+        timing_info[frame_num_index] = {
+            "line_timestamp": uncomp_frame.line_timestamp,
+            "os_time_timestamp": uncomp_frame.os_time_timestamp,
+            "os_time": uncomp_frame.os_time
+        }
+
         num_bands_list.append(uncomp_frame.num_bands)
         processed_flag_list.append(uncomp_frame.processed_flag)
         # Num lines is only 64 in unprocessed frames where data size is 1280 * bands * 64 * 2
@@ -338,6 +492,7 @@ def main():
         if not args.test_mode and processed_flag == 0:
             raise RuntimeError(f"Some frames are not processed (processed flag is 0). See list of processed_flags: "
                                f"{processed_flag_list}")
+    processed_flag = processed_flag_list[0]
 
     # Abort if coadd mode set to 0
     coadd_mode_list.sort()
@@ -353,9 +508,8 @@ def main():
                        f"been processed!")
 
     # Calculate start/stop times for each frame
+    # TODO: Raise error if only 1 data point
     start_stop_times = calculate_start_stop_times(start_times_gps)
-
-    # TODO: Calculate and check line counts
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
@@ -365,6 +519,10 @@ def main():
     # Convert to padded strings like other lists
     missing_frame_nums = [str(num).zfill(5) for num in missing_frame_nums]
     missing_frame_nums.sort()
+    # Now remove failed decompression frame nums from missing frame nums list
+    missing_frame_nums = list(set(missing_frame_nums) - set(failed_decompression_list))
+
+    logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
     # Add missing paths into frame_data_paths list with acquisition status of "6" to indicate missing.
@@ -372,6 +530,12 @@ def main():
         frame_data_paths.append(
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
                                               num, expected_frame_num_str, "6"])))
+
+    # Add failed decompressions into frame_data_paths list with acquisition status of "" to indicate failed.
+    for num in failed_decompression_list:
+        frame_data_paths.append(
+            os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
+                                              num, expected_frame_num_str, "7"])))
     frame_data_paths.sort(key=lambda x: x.split("_")[2])
 
     # Loop through the frames and create acquisitions
@@ -380,6 +544,7 @@ def main():
     if args.chunksize % num_lines != 0:
         raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of {num_lines}")
     frame_chunksize = min(args.chunksize // num_lines, num_frames)
+    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
     report_txt += f"Number of lines per frame: {num_lines}\n"
     report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // num_lines} frames\n"
     report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * num_lines} lines or " \
@@ -388,35 +553,39 @@ def main():
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
-        reassemble_acquisition(acq_data_paths,
-                               i,
-                               i + frame_chunksize - 1,
-                               start_stop_times[i][0],
-                               start_stop_times[i + frame_chunksize - 1][1],
-                               num_bands,
-                               num_lines,
-                               image_dir,
-                               report_txt,
-                               failed_decompression_list,
-                               uncompressed_list,
-                               missing_frame_nums,
-                               logger)
+        reassemble_acquisition(acq_data_paths=acq_data_paths,
+                               start_index=i,
+                               stop_index=i + frame_chunksize - 1,
+                               start_time=start_stop_times[i][0],
+                               stop_time=start_stop_times[i + frame_chunksize - 1][1],
+                               timing_info=timing_info,
+                               processed_flag=processed_flag,
+                               num_bands=num_bands,
+                               num_lines=num_lines,
+                               image_dir=image_dir,
+                               report_text=report_txt,
+                               failed_decompression_list=failed_decompression_list,
+                               uncompressed_list=uncompressed_list,
+                               missing_frame_nums=missing_frame_nums,
+                               logger=logger)
         i += frame_chunksize
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
-    reassemble_acquisition(acq_data_paths,
-                           i,
-                           num_frames - 1,
-                           start_stop_times[i][0],
-                           start_stop_times[num_frames - 1][1],
-                           num_bands,
-                           num_lines,
-                           image_dir,
-                           report_txt,
-                           failed_decompression_list,
-                           uncompressed_list,
-                           missing_frame_nums,
-                           logger)
+    reassemble_acquisition(acq_data_paths=acq_data_paths,
+                           start_index=i,
+                           stop_index=num_frames - 1,
+                           start_time=start_stop_times[i][0],
+                           stop_time=start_stop_times[num_frames - 1][1],
+                           timing_info=timing_info,
+                           processed_flag=processed_flag,
+                           num_bands=num_bands,
+                           num_lines=num_lines,
+                           image_dir=image_dir,
+                           report_text=report_txt,
+                           failed_decompression_list=failed_decompression_list,
+                           uncompressed_list=uncompressed_list,
+                           missing_frame_nums=missing_frame_nums,
+                           logger=logger)
 
     logger.info("Done")
 
