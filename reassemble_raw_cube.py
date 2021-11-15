@@ -187,10 +187,11 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                     os_time=timing_info[int(frame_num_str)]['os_time']
                 )
                 utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(nanosecs_since_gps).zfill(19)} "
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(nanosecs_since_gps).zfill(19)} "
                               f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
 
                 if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
+                    logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
                     corrupt_lines.append(start_line_in_frame + i)
 
         # Cloudy frames
@@ -200,7 +201,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
                               f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         # Missing frames
         if status == 6:
@@ -208,7 +209,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
                               f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         # Failed decompression
         if status == 7:
@@ -216,7 +217,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                             fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
+                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
                               f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
         line += num_lines
     del output
@@ -303,11 +304,11 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"Total corrupt lines (line count mismatches) in this acquisition: {len(corrupt_lines)}\n")
         f.write(f"List of corrupt lines (if any):\n")
         if len(corrupt_lines) > 0:
-            for i, frame_num in enumerate(cloudy_frame_nums):
+            for i, line_num in enumerate(corrupt_lines):
                 if i > 100:
                     f.write(f"More than 100 corrupt lines. See line timestamp file.\n")
                     break
-                f.write(f"{cloudy_frame_nums[i]}\n")
+                f.write(f"{str(line_num).zfill(6)}\n")
         f.write("\n")
 
 

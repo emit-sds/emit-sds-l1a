@@ -107,7 +107,7 @@ def main():
         if line_hdr_avg in [-9998.0, -9997.0]:
             # Use -1 to indicate no data
             out_arr.append([i, -1, "00000000T000000.000", -1, -1])
-            out_file.write(f"{str(i).zfill(5)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 {str(-1).zfill(10)} "
+            out_file.write(f"{str(i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 {str(-1).zfill(10)} "
                            f"{str(-1).zfill(10)}\n")
         else:
             line_timestamp = int.from_bytes(line_hdr_bytes[0:4], byteorder="little", signed=False)
@@ -119,7 +119,7 @@ def main():
             )
             utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
             out_arr.append([i, nanosecs_since_gps, utc_time_str, line_timestamp, line_count])
-            out_file.write(f"{str(i).zfill(5)} {str(nanosecs_since_gps).zfill(19)} "
+            out_file.write(f"{str(i).zfill(6)} {str(nanosecs_since_gps).zfill(19)} "
                            f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
 
     logger.info("Done.")
