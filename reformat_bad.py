@@ -52,7 +52,6 @@ def main():
                     "    * A NetCDF formatted file containing BAD data.\n",
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("bad_sto_dir", help="Path to a directory containing BAD files in STO format")
-    parser.add_argument("--orbit_num", help="The orbit number", default="00000")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reformat_bad.log")
@@ -69,7 +68,7 @@ def main():
         os.makedirs(output_dir)
 
     # Construct output path
-    output_path = os.path.join(output_dir, f"emit_o{args.orbit_num}_bad_att_eph.nc")
+    output_path = os.path.join(output_dir, "emit_bad_att_eph.nc")
 
     # Set up console logging using root logger
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", level=args.level)
@@ -82,7 +81,7 @@ def main():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    logger.info(f"Processing STO files in {args.bad_sto_dir} for orbit number {args.orbit_num}")
+    logger.info(f"Processing STO files in {args.bad_sto_dir}")
     sto_paths = glob.glob(os.path.join(args.bad_sto_dir, "*"))
     sto_paths.sort()
     if len(sto_paths) == 0:
