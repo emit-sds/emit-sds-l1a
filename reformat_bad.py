@@ -111,11 +111,11 @@ def main():
                 if data_start:
                     if not line.startswith("#Data"):
                         continue
-                    l = line.strip("\n").replace("\t \t", "\t").replace("\tS\t", "\t").replace("\tDS\t", "\t").\
+                    line_values = line.strip("\n").replace("\t \t", "\t").replace("\tS\t", "\t").replace("\tDS\t", "\t").\
                         replace("\t\t", "\t").split("\t")
                     # data = [str(v).strip(" ") for v in l]
                     data = []
-                    for v in l:
+                    for v in line_values:
                         if len(str(v).strip(" ")) == 0:
                             data.append(None)
                         else:
