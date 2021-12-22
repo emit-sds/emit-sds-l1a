@@ -364,7 +364,7 @@ def main():
     logger.addHandler(handler)
 
     # Get frame paths
-    frame_paths = glob.glob(os.path.join(args.frames_dir, "*"))
+    frame_paths = glob.glob(os.path.join(args.frames_dir, "*[!txt]"))
     if len(frame_paths) == 0:
         raise RuntimeError(f"Could not find any frames in {args.frames_dir}. Unable to proceed with reassembly.")
     frame_paths.sort()
