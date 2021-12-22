@@ -157,13 +157,18 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
             # Write frame to output array
             frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            # If the data is from the processed partition, then add 8192 to all values except the 0th band so that raw
+            # DN values are in the range from 0 to 16384
+            if processed_flag == 1:
+                output[line:line + num_lines, 1:, :] = output[line:line + num_lines, 1:, :] + 8192
 
             # Read line headers and process below
             line_headers = frame[:, 0, :]
 
             # Populate line count lookup if not yet populated
             if lc_lookup is None:
-                lc_lookup = generate_line_count_lookup(line_headers, num_lines, lc_increment, frame_num_str, start_index, stop_index, logger)
+                lc_lookup = generate_line_count_lookup(line_headers, num_lines, lc_increment, frame_num_str,
+                                                       start_index, stop_index, logger)
                 # If lc_lookup is still unpopulated it means the entire frame had corrupt lines
                 if lc_lookup is None:
                     # This seems very unlikely as it would mean that all or most of the line counts were corrupt
