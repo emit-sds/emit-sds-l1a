@@ -100,18 +100,20 @@ def main():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    logger.info(f"Processing STO files in {args.bad_sto_dir}")
+    logger.info(f"Processing STO files in {args.bad_sto_dir} using start time {args.start_time} and stop time "
+                f"{args.stop_time}")
     sto_paths = glob.glob(os.path.join(args.bad_sto_dir, "*"))
     sto_paths.sort()
     if len(sto_paths) == 0:
         raise RuntimeError(f"Did not find any STO files in {args.bad_sto_dir} to process.")
-    logger.info(f"Found {len(sto_paths)} file to process")
+    logger.info(f"Found {len(sto_paths)} file to process.")
 
     # Read in the STO files and store data in out_arr
     # TODO: Do I need to fill in missing data somehow?
     out_arr = []
     out_arr_lens = []
     for p in sto_paths:
+        logger.info(f"Processing file {p}")
 
         header = None
         ind = None
@@ -153,6 +155,11 @@ def main():
                 # Set or reset data_start to True
                 if "Start_Data" in line:
                     data_start = True
+
+    # Throw error if no matching data was found
+    if len(out_arr) == 0:
+        raise RuntimeError(f"Failed to find any BAD data between orbit start time of {args.start_time} and stop time "
+                           f"of {args.stop_time}")
 
     # ind = lookup_header_indices(header)
     out_arr.sort(key=lambda x: x[ind["time_coarse"]])
