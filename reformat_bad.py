@@ -5,6 +5,7 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 """
 
 import argparse
+import datetime
 import glob
 import logging
 import numpy as np
@@ -13,6 +14,8 @@ import os
 from argparse import RawTextHelpFormatter
 
 import h5netcdf
+
+from ait.core import dmc
 
 
 def lookup_header_indices(hdr):
@@ -41,6 +44,14 @@ def lookup_header_indices(hdr):
     return hdr_indices
 
 
+def get_utc_time_from_gps(gps_time):
+    # Convert gps_time in seconds to a timestamp in utc
+    d = dmc.GPS_Epoch + datetime.timedelta(seconds=gps_time)
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+    utc_time = d - datetime.timedelta(seconds=offset)
+    return utc_time
+
+
 def main():
 
     # Read in args
@@ -52,6 +63,10 @@ def main():
                     "    * A NetCDF formatted file containing BAD data.\n",
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("bad_sto_dir", help="Path to a directory containing BAD files in STO format")
+    parser.add_argument("--start_time", help="Start time for reformatted output file, YYYY-MM-DDTHH:MM:SS",
+                        default="2000-01-01T00:00:00")
+    parser.add_argument("--stop_time", help="Stop time for reformatted output file, YYYY-MM-DDTHH:MM:SS",
+                        default="2050-01-01T00:00:00")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reformat_bad.log")
@@ -60,6 +75,10 @@ def main():
 
     # Format args as needed
     args.level = args.level.upper()
+
+    # Get start/stop times
+    start_time = datetime.datetime.strptime(args.start_time, "%Y-%m-%dT%H:%M:%S")
+    stop_time = datetime.datetime.strptime(args.stop_time, "%Y-%m-%dT%H:%M:%S")
 
     if not os.path.exists(args.work_dir):
         os.makedirs(args.work_dir)
@@ -95,12 +114,14 @@ def main():
     for p in sto_paths:
 
         header = None
+        ind = None
         data_start = False
         with open(p, "r") as f:
             for line in f:
                 # Handle the header (but don't write to NetCDF
                 if "Header" in line and not header:
                     header = line.replace("status", " ").replace("\t \t", "\t").strip("\n").split("\t")
+                    ind = lookup_header_indices(header)
                     # out_arr.append(header)
                     # out_file.writelines(",".join(header).rstrip(",") + "\n")
                     continue
@@ -120,14 +141,20 @@ def main():
                             data.append(None)
                         else:
                             data.append(str(v).strip(" "))
-                    out_arr.append(data)
-                    out_arr_lens.append(len(data))
-                    # out_file.writelines(",".join(data).rstrip(",") + "\n")
+
+                    # Check if data is in start/stop time range and if so, append to output array
+                    if ind is None:
+                        raise RuntimeError("Attempting to add data, but no header row has been found.")
+                    timestamp = get_utc_time_from_gps(int(data[ind["time_coarse"]]))
+                    if start_time <= timestamp <= stop_time:
+                        out_arr.append(data)
+                        out_arr_lens.append(len(data))
+                        # out_file.writelines(",".join(data).rstrip(",") + "\n")
                 # Set or reset data_start to True
                 if "Start_Data" in line:
                     data_start = True
 
-    ind = lookup_header_indices(header)
+    # ind = lookup_header_indices(header)
     out_arr.sort(key=lambda x: x[ind["time_coarse"]])
 
     # TODO: How to convert to J2000 and where do I do that?
