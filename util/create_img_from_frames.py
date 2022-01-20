@@ -30,7 +30,7 @@ def main():
 
     line = 0
     for path in frame_paths:
-        frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.uint16, mode="r")
+        frame = np.memmap(path, shape=(32, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
         output[line:line + 32, :, :] = frame[:, :, :].copy()
         line += 32
     del output

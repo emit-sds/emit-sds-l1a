@@ -21,7 +21,8 @@ def main():
         description="Description: This script executes the depacketization portion of the L1A PGE.\n"
                     "Operating Environment: Python 3.x. See setup.py file for specific dependencies.\n"
                     "Outputs:\n"
-                    "    * List of frames named <DCID>_<frame_num>_<expected_number_of_frames>_<acquisition_status>\n"
+                    "    * List of frames named <dcid>_<frame_timestamp>_<frame_num>_<expected_number_of_frames>_"
+                    "<acquisition_status>_<processed_flag>\n"
                     "    * PGE log file named depacketize_science_frames.log (default)\n"
                     "    * Depacketization summary/report file named depacketize_science_frames_report.txt (default)\n",
         formatter_class=RawTextHelpFormatter)
@@ -32,8 +33,6 @@ def main():
                         default="40000000")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="depacketize_science_frames.log")
-    parser.add_argument("--test_mode", action="store_true",
-                        help="If enabled, some actions will change to support testing, like frame file naming")
 
     args = parser.parse_args()
 
@@ -79,16 +78,19 @@ def main():
             f.write(stream)
 
     logger.info(f"Processing stream file {tmp_stream_path}")
-    processor = SciencePacketProcessor(tmp_stream_path, args.test_mode)
+    processor = SciencePacketProcessor(tmp_stream_path)
 
+    frame_count = 0
     while True:
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
             frame.save(frames_dir)
+            frame_count += 1
         except EOFError:
             break
 
+    logger.info(f"Total depacketized frames in stream file: {frame_count}")
     report_path = args.log_path.replace(".log", "_report.txt")
     processor.stats(out_file=report_path)
 

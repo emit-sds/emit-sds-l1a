@@ -30,9 +30,11 @@ setuptools.setup(
     install_requires=[
         "sortedcontainers>=2.4.0",
         "spectral>=0.21",
-        "pytest>=6.2.4",
+        "numpy>=1.19.2",
+        "pytest>=6.2.1",
         "pytest-cov>=2.10.1",
         "pycodestyle>=2.6.0",
-        "ait-core>=2.3.5"
+        "ait-core>=2.3.5",
+        "h5netcdf>=0.11.0"
     ]
 )
