@@ -13,11 +13,20 @@ The emit-sds-l1a repository contains scripts for executing the various EMIT L1A 
 
 Clone the repository:
 ```bash
-git clone <repository_url>
+git clone https://github.jpl.nasa.gov/emit-sds/emit-sds-l1a.git
 ```
 Run pip install:
 ```bash
 cd emit-sds-l1a
+pip install -e .
+```
+Clone the emit-ios repository
+```bash
+git clone https://github.jpl.nasa.gov/emit/emit-ios.git
+```
+Install the emit-ios repository
+```bash
+cd emit-ios
 pip install -e .
 ```
 
