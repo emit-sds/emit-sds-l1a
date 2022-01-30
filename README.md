@@ -11,6 +11,10 @@ Welcome to the emit-sds-l1a repository.  This repository contains scripts for ex
 
 To understand how this repository is linked to the rest of the emit-sds repositories, please see the [repository guide](https://github.com/emit-sds/emit-main/wiki/Repository-Guide).
 
+## Dependency Requirements
+
+This repository is based on Python 3.x.  See `emit-sds-l1a/setup.py` for specific dependencies.
+
 ## Installation Instructions
 
 Clone the repository:
@@ -31,10 +35,6 @@ Install the emit-ios repository
 cd emit-ios
 pip install -e .
 ```
-
-## Dependency Requirements
-
-This repository is based on Python 3.x.  See `emit-sds-l1a/setup.py` for specific dependencies.
 
 ## Example Execution Commands
 
