@@ -174,7 +174,8 @@ def main():
     # For now, we have both ephemeris and attitude with same time spacing.
     # We could change that in the future if needed.
     tspace = 1.0
-    tm = np.arange(min_time, max_time + 1, tspace)
+    # tm = np.arange(min_time, max_time + 1, tspace)
+    tm = np.asarray([float(row[ind["time_coarse"]]) for row in out_arr], dtype=np.float)
     pos = np.zeros((tm.shape[0], 3))
     vel = np.zeros((tm.shape[0], 3))
     quat = np.zeros((tm.shape[0], 4))
