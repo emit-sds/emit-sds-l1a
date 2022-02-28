@@ -137,13 +137,20 @@ class ScienceDataPacket(CCSDSPacket):
     @property
     def data(self):
         if self.body:
-            return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+            if self.pad_byte_flag == 0:
+                return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+            else:
+                return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + 1)]
         else:
             return None
 
     @data.setter
     def data(self, data):
-        self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
+        # TODO: Update this with pad byte
+        if self.pad_byte_flag == 0:
+            self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
+        else:
+            self.body = self.body[:self.SEC_HDR_LEN] + data + bytearray(1) + self.body[-self.CRC_LEN:]
 
     @property
     def coarse_time(self):
@@ -172,10 +179,18 @@ class ScienceDataPacket(CCSDSPacket):
         return t
 
     @property
+    def pad_byte_flag(self):
+        if len(self.body) >= 11:
+            return (self.body[10] & 0x80) >> 7
+        else:
+            return 0
+
+    @property
     def subheader_id(self):
         shid = -1
         if len(self.body) >= 11:
-            shid = self.body[10]
+            # SHID is now last 7 bits
+            shid = self.body[10] & 0x7F
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract subheader id "
@@ -464,10 +479,12 @@ class SciencePacketProcessor:
         if expected_frame_len < len(start_pkt.data):
             # Create a partial and then read in short frame
             partial_data = start_pkt.data[expected_frame_len:]
-            partial = ScienceDataPacket(
-                hdr_data=start_pkt.hdr_data,
-                body=start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
-            )
+            # TODO: Add garbage byte here?
+            if start_pkt.pad_byte_flag == 0:
+                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
+            else:
+                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + start_pkt.body[-self.CRC_LEN:]
+            partial = ScienceDataPacket(hdr_data=start_pkt.hdr_data, body=body)
             self._pkt_partial = partial
 
             start_pkt.data = start_pkt.data[:expected_frame_len]
@@ -496,10 +513,13 @@ class SciencePacketProcessor:
                 # Create new partial
                 remaining_bytes = data_accum_len - expected_frame_len
                 partial_data = pkt_parts[-1].data[-remaining_bytes:]
-                partial = ScienceDataPacket(
-                    hdr_data=pkt_parts[-1].hdr_data,
-                    body=pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
-                )
+                # TODO: Add pad byte?
+                if pkt_parts[-1].pad_byte_flag == 0:
+                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
+                else:
+                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + \
+                           pkt_parts[-1].body[-self.CRC_LEN:]
+                partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body)
                 self._pkt_partial = partial
 
                 # Remove extra data from last packet in packet parts
