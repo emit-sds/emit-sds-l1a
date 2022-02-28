@@ -518,7 +518,7 @@ class SciencePacketProcessor:
                     body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
                 else:
                     body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + \
-                           pkt_parts[-1].body[-self.CRC_LEN:]
+                        pkt_parts[-1].body[-self.CRC_LEN:]
                 partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body)
                 self._pkt_partial = partial
 
