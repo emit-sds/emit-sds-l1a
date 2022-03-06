@@ -271,7 +271,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         uncompressed_in_acq.sort()
 
         f.write(f"Total number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
+                f"(compression flag set to 0 or cloudy flag set to 1): {len(uncompressed_in_acq)}\n")
         f.write("List of frame numbers not requiring decompression (if any):\n")
         if len(uncompressed_in_acq) > 0:
             f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
@@ -409,8 +409,8 @@ def main():
         # Check frame checksum
         logger.debug(f"Frame is valid: {frame.is_valid()}")
 
-        # Decompress if compression flag is set, otherwise, just copy file
-        if frame.compression_flag == 1:
+        # Decompress if compression flag is set and frame is not cloudy, otherwise, just copy file
+        if frame.compression_flag == 1 and frame.cloudy_flag == 0:
             # Decompress frame
             interleave_arg = "--" + args.interleave
             cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v",
@@ -435,7 +435,7 @@ def main():
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_frame_path}")
+            logger.info(f"Found uncompresssed or cloudy frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[2])
 
