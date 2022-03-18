@@ -111,8 +111,8 @@ def get_utc_time_from_gps(gps_time):
 
 
 def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
-                           num_bands, num_lines, image_dir, report_text, failed_decompression_list, uncompressed_list,
-                           missing_frame_nums, logger):
+                           coadd_mode, num_bands, num_lines, image_dir, report_text, failed_decompression_list,
+                           uncompressed_list, missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -144,7 +144,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     cloudy_frame_nums = []
     line = 0
     lt_file = open(line_timestamps_path, "w")
-    lc_increment = 2 if processed_flag == 1 else 1
+    lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
     for path in acq_data_paths:
@@ -271,7 +271,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         uncompressed_in_acq.sort()
 
         f.write(f"Total number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0): {len(uncompressed_in_acq)}\n")
+                f"(compression flag set to 0 or cloudy flag set to 1): {len(uncompressed_in_acq)}\n")
         f.write("List of frame numbers not requiring decompression (if any):\n")
         if len(uncompressed_in_acq) > 0:
             f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
@@ -409,8 +409,8 @@ def main():
         # Check frame checksum
         logger.debug(f"Frame is valid: {frame.is_valid()}")
 
-        # Decompress if compression flag is set, otherwise, just copy file
-        if frame.compression_flag == 1:
+        # Decompress if compression flag is set and frame is not cloudy, otherwise, just copy file
+        if frame.compression_flag == 1 and frame.cloudy_flag == 0:
             # Decompress frame
             interleave_arg = "--" + args.interleave
             cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v",
@@ -435,7 +435,7 @@ def main():
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed frame at {path}. Copying to {uncomp_frame_path}")
+            logger.info(f"Found uncompresssed or cloudy frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[2])
 
@@ -504,6 +504,7 @@ def main():
     for coadd_mode in coadd_mode_list:
         if not args.test_mode and coadd_mode == 0:
             raise RuntimeError(f"Some frames are not coadded.  See list of coadd_mode flags: {coadd_mode_list}")
+    coadd_mode = coadd_mode_list[0]
 
     # Get number of bands and lines
     num_bands = num_bands_list[0]
@@ -565,6 +566,7 @@ def main():
                                stop_time=start_stop_times[i + frame_chunksize - 1][1],
                                timing_info=timing_info,
                                processed_flag=processed_flag,
+                               coadd_mode=coadd_mode,
                                num_bands=num_bands,
                                num_lines=num_lines,
                                image_dir=image_dir,
@@ -583,6 +585,7 @@ def main():
                            stop_time=start_stop_times[num_frames - 1][1],
                            timing_info=timing_info,
                            processed_flag=processed_flag,
+                           coadd_mode=coadd_mode,
                            num_bands=num_bands,
                            num_lines=num_lines,
                            image_dir=image_dir,

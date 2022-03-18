@@ -414,6 +414,7 @@ class SciencePacketProcessor:
                 raise PSCMismatchException(msg)
 
     def _read_frame_start_packet(self):
+        sync_word_warning_count = 0
         while True:
             try:
                 pkt = None
@@ -462,7 +463,11 @@ class SciencePacketProcessor:
                     # Save the last chunk of packet data equal to the length of
                     # the HEADER sync word so we can handle the sync word being
                     # split across packets.
-                    logger.warning(f"Unable to find header sync word. Skipping packet {pkt}")
+                    skip_count = 500
+                    if sync_word_warning_count % skip_count == 0:
+                        logger.warning(f"Unable to find header sync word. Skipping packet {pkt}")
+                        logger.warning(f"Silencing up to next {skip_count} skips...")
+                    sync_word_warning_count += 1
                     self._pkt_partial = pkt
                     self._pkt_partial.data = self._pkt_partial.data[-len(self.HEADER_SYNC_WORD):]
 
