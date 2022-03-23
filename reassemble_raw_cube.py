@@ -542,7 +542,7 @@ def main():
         frame_data_paths.append(
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
                                               num, expected_frame_num_str, "7"])))
-    frame_data_paths.sort(key=lambda x: x.split("_")[2])
+    frame_data_paths.sort(key=lambda x: os.path.basename(x).split("_")[2])
 
     # Loop through the frames and create acquisitions
     i = 0
