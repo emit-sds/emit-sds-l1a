@@ -51,4 +51,3 @@ else:
 
 print(indices)
 print(datetime.datetime.now())
-
