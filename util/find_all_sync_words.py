@@ -50,4 +50,5 @@ else:
             indices.append(i)
 
 print(indices)
+print(f"Total sync words found: {len(indices)}")
 print(datetime.datetime.now())
