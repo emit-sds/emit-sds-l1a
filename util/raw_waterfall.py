@@ -9,7 +9,10 @@ Created on Sun Jan 30 14:57:21 2022
 from pathlib import Path
 import sys
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import spectral.io.envi as envi
