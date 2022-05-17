@@ -8,6 +8,8 @@ import itertools
 import logging
 import zlib
 
+from emit_sds_l1a.frame import Frame
+
 from enum import Enum
 from sortedcontainers import SortedDict
 
@@ -15,7 +17,9 @@ logger = logging.getLogger("emit-sds-l1a")
 
 
 class PSCMismatchException(Exception):
-    pass
+
+    def __init__(self, msg, next_psc, cur_psc, **kwargs):
+        super(Exception, self).__init__(msg, **kwargs)
 
 
 class CCSDSPacket:
@@ -132,7 +136,7 @@ class ScienceDataPacket(CCSDSPacket):
               enforced if these kwargs are used.
         """
         super(ScienceDataPacket, self).__init__(stream=stream, **kwargs)
-        logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
+        # logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
 
     @property
     def data(self):
@@ -146,7 +150,6 @@ class ScienceDataPacket(CCSDSPacket):
 
     @data.setter
     def data(self, data):
-        # TODO: Update this with pad byte
         if self.pad_byte_flag == 0:
             self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
         else:
@@ -236,8 +239,8 @@ class ScienceDataPacket(CCSDSPacket):
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "coarse_time={} fine_time{} pkt_seq_cnt={}>".format(
-            self.coarse_time, self.fine_time, self.pkt_seq_cnt)
+        pkt_str += "coarse_time={} fine_time{} seq_flags={} pkt_seq_cnt={}>".format(
+            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt)
         return pkt_str
 
 
@@ -260,7 +263,8 @@ class SDPProcessingStats:
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
             "pkt_seq_errors": 0,
-            "missing_psc": []
+            "missing_psc": [],
+            "data_bytes_read": 0
         }
 
     def reset_bytes_since_last_index(self):
@@ -272,6 +276,7 @@ class SDPProcessingStats:
         self._stats["last_pkt_size"] = pkt.size
         self._stats["bytes_read"] += pkt.size
         self._stats["bytes_read_since_last_index"] += pkt.size
+        self._stats["data_bytes_read"] += len(pkt.data)
 
     def pkt_seq_err(self, current_pkt, expected_psc):
         self._stats["pkt_seq_errors"] += 1
@@ -300,6 +305,9 @@ class SDPProcessingStats:
 
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
+
+    def get_data_bytes_read(self):
+        return self._stats["data_bytes_read"]
 
     def __str__(self):
         self._stats["missing_psc"].sort()
@@ -411,7 +419,7 @@ class SciencePacketProcessor:
                 self._processed_pkts[pkt_hash] = True
                 self._pkt_partial = pkt
                 msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
-                raise PSCMismatchException(msg)
+                raise PSCMismatchException(msg, next_psc, pkt.pkt_seq_cnt)
 
     def _read_frame_start_packet(self):
         sync_word_warning_count = 0
@@ -445,6 +453,7 @@ class SciencePacketProcessor:
                     self._stats.reset_bytes_since_last_index()
                     # If sync word is found, check minimum processable length and read next packet if needed
                     logger.info(f"Found sync word at index {index} in packet {pkt}")
+                    logger.info(f"Sync word is at data index {self._stats.get_data_bytes_read() - len(pkt.data) + index}")
                     # Remove data before sync word so packet data starts at the beginning of the frame
                     pkt.data = pkt.data[index:]
                     # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
@@ -501,8 +510,18 @@ class SciencePacketProcessor:
         data_accum_len = len(start_pkt.data)
         logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
         pkt_parts = [start_pkt]
+        frame = None
 
         while True:
+            # After the first 1280 bytes are read, check the frame checksum
+            if data_accum_len >= 1280 and frame is None:
+                frame = Frame(pkt_parts[:1280])
+                if frame.is_valid():
+                    logger.info(f"Found valid frame checksum for frame: {frame}")
+                else:
+                    # TODO: Must be invalid, need to start over
+                    pass
+
             if data_accum_len == expected_frame_len:
 
                 # We're done
