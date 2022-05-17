@@ -453,7 +453,7 @@ class SciencePacketProcessor:
                     self._stats.reset_bytes_since_last_index()
                     # If sync word is found, check minimum processable length and read next packet if needed
                     logger.info(f"Found sync word at index {index} in packet {pkt}")
-                    logger.info(f"Sync word is at data index {self._stats.get_data_bytes_read() - len(pkt.data) + index}")
+                    logger.debug(f"Sync word is at data index {self._stats.get_data_bytes_read() - len(pkt.data) + index}")
                     # Remove data before sync word so packet data starts at the beginning of the frame
                     pkt.data = pkt.data[index:]
                     # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
@@ -515,7 +515,11 @@ class SciencePacketProcessor:
         while True:
             # After the first 1280 bytes are read, check the frame checksum
             if data_accum_len >= 1280 and frame is None:
-                frame = Frame(pkt_parts[:1280])
+                hdr_bytes = bytearray()
+                while len(hdr_bytes) < 1280:
+                    for pkt in pkt_parts:
+                        hdr_bytes += pkt.data
+                frame = Frame(hdr_bytes[:1280])
                 if frame.is_valid():
                     logger.info(f"Found valid frame checksum for frame: {frame}")
                 else:
