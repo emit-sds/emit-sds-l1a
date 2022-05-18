@@ -20,7 +20,7 @@ cnt = 0
 while True:
     try:
         pkt = dp.CCSDSPacket(in_file)
-        if cnt % 16383 not in (0,1):
+        if cnt % 16383 not in (0, 1):
             out.write(pkt.hdr_data)
             out.write(pkt.body)
         cnt += 1
