@@ -126,7 +126,7 @@ class ScienceDataPacket(CCSDSPacket):
 
     HEADER_SYNC_WORD = 0x81FFFF81
     PRIMARY_HDR_LEN = 6
-    SEC_HDR_LEN = 11
+    SEC_HDR_LEN = 13
     CRC_LEN = 4
 
     def __init__(self, stream=None, **kwargs):
@@ -147,19 +147,13 @@ class ScienceDataPacket(CCSDSPacket):
     @property
     def data(self):
         if self.body:
-            if self.pad_byte_flag == 0:
-                return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
-            else:
-                return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + 1)]
+            return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + self.num_garbage_bytes)]
         else:
             return None
 
     @data.setter
     def data(self, data):
-        if self.pad_byte_flag == 0:
-            self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
-        else:
-            self.body = self.body[:self.SEC_HDR_LEN] + data + bytearray(1) + self.body[-self.CRC_LEN:]
+        self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-(self.CRC_LEN + self.num_garbage_bytes):]
 
     @property
     def coarse_time(self):
@@ -169,7 +163,7 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract coarse time "
-                f"from EngineeringDataPacket. Returning default value: {t}"
+                f"from ScienceDataPacket. Returning default value: {t}"
             )
 
         return t
@@ -182,7 +176,7 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract fine time "
-                f"from EngineeringDataPacket. Returning default value: {t}"
+                f"from ScienceDataPacket. Returning default value: {t}"
             )
 
         return t
@@ -203,16 +197,33 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract subheader id "
-                f"from EngineeringDataPacket. Returning default value: {shid}"
+                f"from ScienceDataPacket. Returning default value: {shid}"
             )
 
         return shid
 
     @property
+    def real_pkt_data_len(self):
+        rpdl = -1
+        if len(self.body) >= 13:
+            rpdl = int.from_bytes(self.body[11:13], "big")
+        else:
+            logging.error(
+                f"Insufficient data length {len(self.body)} to extract real packet data length "
+                f"from ScienceDataPacket. Returning default value: {rpdl}"
+            )
+
+        return rpdl
+
+    @property
+    def num_garbage_bytes(self):
+        return self.pkt_data_len + 1 - (self.SEC_HDR_LEN + self.real_pkt_data_len + 1 + self.CRC_LEN)
+
+    @property
     def is_valid(self):
         """"""
-        crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
-        calc_crc = zlib.crc32(self.hdr_data + self.body[:-self.CRC_LEN])
+        crc = int.from_bytes(self.body[-(self.CRC_LEN + self.num_garbage_bytes): -self.num_garbage_bytes], "big")
+        calc_crc = zlib.crc32(self.hdr_data + self.body[:-(self.CRC_LEN + self.num_garbage_bytes)])
         return calc_crc == crc
 
     @property
@@ -357,7 +368,7 @@ class SDPProcessingStats:
 class SciencePacketProcessor:
 
     HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
-    SEC_HDR_LEN = 11
+    SEC_HDR_LEN = 13
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
     MAX_DATA_LEN = 1479
@@ -518,11 +529,8 @@ class SciencePacketProcessor:
         if expected_frame_len < len(start_pkt.data):
             # Create a partial and then read in short frame
             partial_data = start_pkt.data[expected_frame_len:]
-            # TODO: Add garbage byte here?
-            if start_pkt.pad_byte_flag == 0:
-                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
-            else:
-                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + start_pkt.body[-self.CRC_LEN:]
+            body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + \
+                start_pkt.body[-(self.CRC_LEN + start_pkt.num_garbage_bytes):]
             partial = ScienceDataPacket(hdr_data=start_pkt.hdr_data, body=body)
             self._pkt_partial = partial
 
@@ -566,12 +574,8 @@ class SciencePacketProcessor:
                 # Create new partial
                 remaining_bytes = data_accum_len - expected_frame_len
                 partial_data = pkt_parts[-1].data[-remaining_bytes:]
-                # TODO: Add pad byte?
-                if pkt_parts[-1].pad_byte_flag == 0:
-                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
-                else:
-                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + \
-                        pkt_parts[-1].body[-self.CRC_LEN:]
+                body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + \
+                    pkt_parts[-1].body[-(self.CRC_LEN + pkt_parts[-1].num_garbage_bytes):]
                 partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body)
                 self._pkt_partial = partial
 
@@ -600,7 +604,8 @@ class SciencePacketProcessor:
                         logger.info(f"Not inserting any more garbage packets because end of frame.")
                         break
                     elif remaining_data_len >= self.MAX_DATA_LEN:
-                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + pkt.body[-self.CRC_LEN:]
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + \
+                            pkt.body[-(self.CRC_LEN + pkt.num_garbage_bytes):]
                         garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
                         pkt_parts.append(garbage_pkt)
                         data_accum_len += self.MAX_DATA_LEN
@@ -608,7 +613,8 @@ class SciencePacketProcessor:
                                     f"now {data_accum_len}")
                         self._stats.corrupt_frame(frame)
                     elif 0 < remaining_data_len < self.MAX_DATA_LEN:
-                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(remaining_data_len) + pkt.body[-self.CRC_LEN:]
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + \
+                            pkt.body[-(self.CRC_LEN + pkt.num_garbage_bytes):]
                         garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
                         pkt_parts.append(garbage_pkt)
                         data_accum_len += remaining_data_len
