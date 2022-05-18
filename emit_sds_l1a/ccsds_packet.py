@@ -24,6 +24,10 @@ class PSCMismatchException(Exception):
         self.next_psc = next_psc
 
 
+class InvalidFrameHeader(Exception):
+    pass
+
+
 class CCSDSPacket:
     """CCSDS Space Packet Object
     Provides an abstraction of a CCSDS Space Packet to simplify handling CCSDS
@@ -377,6 +381,9 @@ class SciencePacketProcessor:
                 pkt_parts = self._read_pkt_parts(start_pkt)
                 logger.info(f"READ FRAME END")
                 return self._reconstruct_frame(pkt_parts)
+            except InvalidFrameHeader as e:
+                logger.warning(e)
+                logger.info("Skipping invalid frame. Continuing to look for next frame header... ")
             except EOFError:
                 logger.info(
                     "Received EOFError when reading files. No more data to process"
@@ -506,6 +513,8 @@ class SciencePacketProcessor:
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
 
         # Handle case where frame data is less than current packet data size
+        # TODO: This block is probably never executed since the start packet usually contains only the header and
+        #  nothing more
         if expected_frame_len < len(start_pkt.data):
             # Create a partial and then read in short frame
             partial_data = start_pkt.data[expected_frame_len:]
@@ -539,8 +548,8 @@ class SciencePacketProcessor:
                 if frame.is_valid():
                     logger.info(f"Found valid frame checksum for frame: {frame}")
                 else:
-                    # TODO: Must be invalid, need to start over
-                    pass
+                    self._pkt_partial = None
+                    raise InvalidFrameHeader(f"Frame failed checksum and is invalid: {frame}")
 
             if data_accum_len == expected_frame_len:
 
