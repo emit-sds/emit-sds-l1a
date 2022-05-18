@@ -262,6 +262,7 @@ class SDPProcessingStats:
             "last_pkt_size": 0,
             "frames_read": 0,
             "truncated_frame_errors": 0,
+            "corrupt_frames": [],
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
             "pkt_seq_errors": 0,
@@ -308,10 +309,20 @@ class SDPProcessingStats:
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
 
+    def corrupt_frame(self, frame):
+        name = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
+                         str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
+                         str(frame.acq_status), str(frame.processed_flag)])
+        if name not in self._stats["corrupt_frames"]:
+            self._stats["corrupt_frames"].append(name)
+
     def get_data_bytes_read(self):
         return self._stats["data_bytes_read"]
 
     def __str__(self):
+        self._stats["corrupt_frames"].sort()
+        corrupt_frames_str = "\n".join([i for i in self._stats["corrupt_frames"]])
+
         self._stats["missing_psc"].sort()
         missing_pscs_str = "\n".join([i for i in self._stats["missing_psc"]])
 
@@ -325,8 +336,10 @@ class SDPProcessingStats:
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
             f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
-            f"Total Frames Read: {self._stats['frames_read']}\n"
-            f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
+            f"Total Frames Read: {self._stats['frames_read']}\n\n"
+            f"Corrupt Frame Errors Encountered: {len(self._stats['corrupt_frames'])}\n"
+            "Corrupt Frames:\n"
+            f"{corrupt_frames_str}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
             f"{invalid_pscs_str}\n\n"
@@ -562,9 +575,6 @@ class SciencePacketProcessor:
                 pkt = self._read_next_packet()
             except PSCMismatchException as e:
                 logger.warning(e)
-                # logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
-                # self._stats.truncated_frame()
-                # return pkt_parts
 
                 # Determine number of missing packets
                 pkt = e.pkt
@@ -572,7 +582,7 @@ class SciencePacketProcessor:
                     else self._cur_psc + pkt.CCSDS_PKT_SEC_COUNT_MOD - e.next_psc
 
                 logger.info(f"While reading packet parts, encountered {num_missing} missing packets. Attempting to "
-                               f"insert garbage packets")
+                            f"insert garbage packets")
 
                 # Only insert garbage packets if the remaining data length can accommodate it
                 for i in range(num_missing):
@@ -587,6 +597,7 @@ class SciencePacketProcessor:
                         data_accum_len += self.MAX_DATA_LEN
                         logger.info(f"Inserted garbage packet with {self.MAX_DATA_LEN} bytes of data. Accum data is "
                                     f"now {data_accum_len}")
+                        self._stats.corrupt_frame(frame)
                     elif 0 < remaining_data_len < self.MAX_DATA_LEN:
                         body = pkt.body[:self.SEC_HDR_LEN] + bytearray(remaining_data_len) + pkt.body[-self.CRC_LEN:]
                         garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
@@ -594,6 +605,7 @@ class SciencePacketProcessor:
                         data_accum_len += remaining_data_len
                         logger.info(f"Inserted garbage packet with {remaining_data_len} bytes of data. Accum data is "
                                     f"now {data_accum_len}")
+                        self._stats.corrupt_frame(frame)
 
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
