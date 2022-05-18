@@ -371,7 +371,7 @@ class SciencePacketProcessor:
     SEC_HDR_LEN = 13
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
-    MAX_DATA_LEN = 1479
+    MAX_DATA_LEN = 1477
 
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
