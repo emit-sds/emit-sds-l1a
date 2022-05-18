@@ -18,8 +18,10 @@ logger = logging.getLogger("emit-sds-l1a")
 
 class PSCMismatchException(Exception):
 
-    def __init__(self, msg, next_psc, cur_psc, **kwargs):
+    def __init__(self, msg, pkt, next_psc, **kwargs):
         super(Exception, self).__init__(msg, **kwargs)
+        self.pkt = pkt
+        self.next_psc = next_psc
 
 
 class CCSDSPacket:
@@ -341,6 +343,7 @@ class SciencePacketProcessor:
     SEC_HDR_LEN = 11
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
+    MAX_DATA_LEN = 1479
 
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
@@ -417,9 +420,8 @@ class SciencePacketProcessor:
                 self._cur_coarse = pkt.coarse_time
                 self._cur_fine = pkt.fine_time
                 self._processed_pkts[pkt_hash] = True
-                self._pkt_partial = pkt
                 msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
-                raise PSCMismatchException(msg, next_psc, pkt.pkt_seq_cnt)
+                raise PSCMismatchException(msg, pkt, next_psc)
 
     def _read_frame_start_packet(self):
         sync_word_warning_count = 0
@@ -483,6 +485,7 @@ class SciencePacketProcessor:
             except PSCMismatchException as e:
                 logger.warning(e)
                 logger.warning("While looking for frame start packet, encountered PSC mismatch.")
+                self._pkt_partial = e.pkt
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
@@ -559,9 +562,39 @@ class SciencePacketProcessor:
                 pkt = self._read_next_packet()
             except PSCMismatchException as e:
                 logger.warning(e)
-                logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
-                self._stats.truncated_frame()
-                return pkt_parts
+                # logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
+                # self._stats.truncated_frame()
+                # return pkt_parts
+
+                # Determine number of missing packets
+                pkt = e.pkt
+                num_missing = self._cur_psc - e.next_psc if self._cur_psc > e.next_psc \
+                    else self._cur_psc + pkt.CCSDS_PKT_SEC_COUNT_MOD - e.next_psc
+
+                logger.info(f"While reading packet parts, encountered {num_missing} missing packets. Attempting to "
+                               f"insert garbage packets")
+
+                # Only insert garbage packets if the remaining data length can accommodate it
+                for i in range(num_missing):
+                    remaining_data_len = expected_frame_len - data_accum_len
+                    if remaining_data_len == 0:
+                        logger.info(f"Not inserting any more garbage packets because end of frame.")
+                        break
+                    elif remaining_data_len >= self.MAX_DATA_LEN:
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + pkt.body[-self.CRC_LEN:]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                        pkt_parts.append(garbage_pkt)
+                        data_accum_len += self.MAX_DATA_LEN
+                        logger.info(f"Inserted garbage packet with {self.MAX_DATA_LEN} bytes of data. Accum data is "
+                                    f"now {data_accum_len}")
+                    elif 0 < remaining_data_len < self.MAX_DATA_LEN:
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(remaining_data_len) + pkt.body[-self.CRC_LEN:]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                        pkt_parts.append(garbage_pkt)
+                        data_accum_len += remaining_data_len
+                        logger.info(f"Inserted garbage packet with {remaining_data_len} bytes of data. Accum data is "
+                                    f"now {data_accum_len}")
+
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
