@@ -147,6 +147,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
+    is_empty = True
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
@@ -154,6 +155,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         logger.info(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
+            is_empty = False
             # Write frame to output array
             frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
@@ -244,6 +246,9 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
+
+        # If all frames are cloudy, missing, or failed decompression, then indicate it in the report
+        f.write(f"Acquisition is empty (all frames are cloudy or missing): {is_empty}\n\n")
 
         # Get timing info using loop in case the timing info is missing on the first frame.
         timing_info_found = False
