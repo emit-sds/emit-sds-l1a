@@ -28,6 +28,18 @@ CORRUPT_FRAME_FLAG = -9997
 CORRUPT_LINE_FLAG = -9996
 CLOUDY_FRAME_FLAG = -9990
 
+INSTRUMENT_MODE_DESCRIPTIONS = {
+    "LD": "Line driver mode standard pin stripe image",
+    "LDN": "Line driver mode noise measurement",
+    "LDN_vdda": "Line driver mode vi test on vdda noise measurement",
+    "cold_img": "Nominal Cold FPA",
+    "cold_img_vdda": "Nominal and vi test set on vdda Cold FPA",
+    "cold_img_mid": "Gypsum Cold FPA",
+    "cold_img_mid_vdda": "Gypsum and vi test set on vdda Cold FPA",
+    "cold_img_slow": "Maximum integration time Cold FPA",
+    "warm_img": "Nominal Warm FPA",
+    "warm_img_short_integration": "Minimum integration time Warm FPA"
+}
 
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
@@ -111,8 +123,8 @@ def get_utc_time_from_gps(gps_time):
 
 
 def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
-                           coadd_mode, num_bands, num_lines, image_dir, report_text, failed_decompression_list,
-                           uncompressed_list, missing_frame_nums, logger):
+                           coadd_mode, num_bands, num_lines, instrument_mode, image_dir, report_text,
+                           failed_decompression_list, uncompressed_list, missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -245,7 +257,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f'Stop time: {stop_time}\n')
         f.write(f"Number of samples: 1280\n")
         f.write(f"Number of bands: {num_bands}\n")
-        f.write(f"Number of lines: {num_lines_in_acq}\n\n")
+        f.write(f"Number of lines: {num_lines_in_acq}\n")
+        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]} \n\n")
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
@@ -399,6 +412,7 @@ def main():
     num_lines_list = []
     processed_flag_list = []
     coadd_mode_list = []
+    instrument_mode_list = []
     failed_decompression_list = []
     uncompressed_list = []
     line_counts = [None] * int(expected_frame_num_str)
@@ -459,7 +473,7 @@ def main():
         # Get line count for each frame
         line_counts[frame_num_index] = uncomp_frame.line_count
 
-        # Get timing infor for each frame
+        # Get timing info for each frame
         timing_info[frame_num_index] = {
             "line_timestamp": uncomp_frame.line_timestamp,
             "os_time_timestamp": uncomp_frame.os_time_timestamp,
@@ -468,6 +482,7 @@ def main():
 
         num_bands_list.append(uncomp_frame.num_bands)
         processed_flag_list.append(uncomp_frame.processed_flag)
+        instrument_mode_list.append(uncomp_frame.instrument_mode)
         # Num lines is only 64 in unprocessed frames where data size is 1280 * bands * 64 * 2
         size_of_64 = 1280 * uncomp_frame.num_bands * 64 * 2
         if uncomp_frame.processed_flag == 0 and uncomp_frame.data_size == size_of_64:
@@ -498,6 +513,13 @@ def main():
         if num_lines_list[i] != num_lines_list[0]:
             raise RuntimeError(
                 f"Not all frames have the same number of lines. See list of num_lines: {num_lines_list}")
+
+    # Check all frames have same instrument mode
+    for i in range(len(instrument_mode_list)):
+        if instrument_mode_list[i] != instrument_mode_list[0]:
+            raise RuntimeError(
+                f"Not all frames have the same instrument mode. See list of instrument modes: {instrument_mode_list}")
+    instrument_mode = instrument_mode_list[0]
 
     # Abort if any of the frames are not processed (i.e. they are from the raw partition)
     processed_flag_list.sort()
@@ -577,6 +599,7 @@ def main():
                                coadd_mode=coadd_mode,
                                num_bands=num_bands,
                                num_lines=num_lines,
+                               instrument_mode=instrument_mode,
                                image_dir=image_dir,
                                report_text=report_txt,
                                failed_decompression_list=failed_decompression_list,
@@ -596,6 +619,7 @@ def main():
                            coadd_mode=coadd_mode,
                            num_bands=num_bands,
                            num_lines=num_lines,
+                           instrument_mode=instrument_mode,
                            image_dir=image_dir,
                            report_text=report_txt,
                            failed_decompression_list=failed_decompression_list,
