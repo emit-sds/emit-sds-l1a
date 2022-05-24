@@ -27,7 +27,6 @@ MISSING_FRAME_FLAG = -9998
 CORRUPT_FRAME_FLAG = -9997
 CORRUPT_LINE_FLAG = -9996
 CLOUDY_FRAME_FLAG = -9990
-MIN_PROC_LINES = 256
 
 
 def get_utc_time_from_gps(gps_time):
@@ -148,7 +147,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
-    num_processable_lines = 0
+    num_valid_lines = 0
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
@@ -156,7 +155,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         logger.info(f"Adding frame {path}")
         # Non-cloudy frames
         if status in (0, 1):
-            num_processable_lines += num_lines
+            num_valid_lines += num_lines
             # Write frame to output array
             frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
@@ -175,8 +174,10 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                 # If lc_lookup is still unpopulated it means the entire frame had corrupt lines
                 if lc_lookup is None:
                     # This seems very unlikely as it would mean that all or most of the line counts were corrupt
-                    logger.warning(f"Could not find incremental line counts in frame number {frame_num_str}.")
+                    logger.warning(f"Could not find incremental line counts in frame number {frame_num_str}. "
+                                   f"Assuming that all lines are corrupt.")
                     corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
+                    num_valid_lines -= num_lines
                 else:
                     logger.info(f"Found a good line count in frame {frame_num_str} and generated a line count lookup.")
 
@@ -201,6 +202,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                 if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
                     logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
                     corrupt_lines.append(start_line_in_frame + i)
+                    num_valid_lines -= 1
 
         # Cloudy frames
         if status in (4, 5):
@@ -248,10 +250,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
 
-        # Indicate if acquisition has more than the min number of processable lines
-        has_min_proc_lines = True if num_processable_lines > MIN_PROC_LINES else False
-        f.write(f"Acquisition has min processable lines (>{MIN_PROC_LINES} lines with valid data): "
-                f"{has_min_proc_lines}\n\n")
+        # Report on number of valid (not cloudy, missing, or corrupt) lines.
+        f.write(f"Number of lines with valid data (not cloudy, missing, or corrupt): {num_valid_lines}\n\n")
 
         # Get timing info using loop in case the timing info is missing on the first frame.
         timing_info_found = False
