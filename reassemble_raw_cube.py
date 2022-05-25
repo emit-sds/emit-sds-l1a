@@ -38,7 +38,8 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
     "cold_img_mid_vdda": "Gypsum and vi test set on vdda Cold FPA",
     "cold_img_slow": "Maximum integration time Cold FPA",
     "warm_img": "Nominal Warm FPA",
-    "warm_img_short_integration": "Minimum integration time Warm FPA"
+    "warm_img_short_integration": "Minimum integration time Warm FPA",
+    "no_match": "No match"
 }
 
 def get_utc_time_from_gps(gps_time):
@@ -258,7 +259,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"Number of samples: 1280\n")
         f.write(f"Number of bands: {num_bands}\n")
         f.write(f"Number of lines: {num_lines_in_acq}\n")
-        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]} \n\n")
+        f.write(f"Instrument mode: {instrument_mode}\n")
+        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n")
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")

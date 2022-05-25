@@ -146,7 +146,7 @@ class Frame:
 
         # Get the frame instrument_mode
         self.instrument_mode = self._get_instrument_mode()
-        self.instrument_mode_desc = "no_match" if self.instrument_mode == "no_match" else \
+        self.instrument_mode_desc = "No match" if self.instrument_mode == "no_match" else \
             INSTRUMENT_MODES[self.instrument_mode]["desc"]
 
         logger.debug(f"Initialized frame: {self}")
