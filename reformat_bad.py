@@ -17,7 +17,7 @@ import h5netcdf
 
 from ait.core import dmc
 
-J2000_OFFSET = 0
+J2000_OFFSET = 630763148.8160727
 
 
 def lookup_header_indices(hdr):
@@ -171,8 +171,8 @@ def main():
 
     # Create NetCDF file and write out selected fields
     fout = h5netcdf.File(output_path, "w")
-    # TODO: J2000 conversion
-    tm = np.asarray([float(row[ind["time_coarse"]]) + float(row[ind["time_fine"]] + J2000_OFFSET)
+    # Get GPS time from coarse and fine time, then subtract J2000 offset to get J2000 time
+    tm = np.asarray([float(row[ind["time_coarse"]]) + float(row[ind["time_fine"]] - J2000_OFFSET)
                      for row in out_arr], dtype=np.float)
     pos = np.zeros((tm.shape[0], 3))
     vel = np.zeros((tm.shape[0], 3))
