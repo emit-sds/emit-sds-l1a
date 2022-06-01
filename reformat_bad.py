@@ -17,6 +17,8 @@ import h5netcdf
 
 from ait.core import dmc
 
+J2000_OFFSET = 630763148.8160727
+
 
 def lookup_header_indices(hdr):
     iss_pui_map = {
@@ -164,23 +166,17 @@ def main():
     # ind = lookup_header_indices(header)
     out_arr.sort(key=lambda x: x[ind["time_coarse"]])
 
-    # TODO: How to convert to J2000 and where do I do that?
-
     min_time = int(out_arr[0][ind["time_coarse"]])
     max_time = int(out_arr[-1][ind["time_coarse"]])
 
     # Create NetCDF file and write out selected fields
     fout = h5netcdf.File(output_path, "w")
-    # For now, we have both ephemeris and attitude with same time spacing.
-    # We could change that in the future if needed.
-    tspace = 1.0
-    # tm = np.arange(min_time, max_time + 1, tspace)
-    tm = np.asarray([float(row[ind["time_coarse"]]) for row in out_arr], dtype=np.float)
+    # Get GPS time from coarse and fine time, then subtract J2000 offset to get J2000 time
+    tm = np.asarray([float(row[ind["time_coarse"]]) + float(row[ind["time_fine"]] - J2000_OFFSET)
+                     for row in out_arr], dtype=np.float)
     pos = np.zeros((tm.shape[0], 3))
     vel = np.zeros((tm.shape[0], 3))
     quat = np.zeros((tm.shape[0], 4))
-
-    # TODO: Can I just assume that I have all the time values or do I need to do some checking and add in missing rows?
 
     for i, row in enumerate(out_arr):
         pos[i, :] = (row[ind["pos_x"]], row[ind["pos_y"]], row[ind["pos_z"]])
@@ -201,8 +197,8 @@ def main():
     t = g.create_variable("time_j2000", ('t',), data=tm)
     t.attrs["units"] = "s"
     t = g.create_variable("quaternion", ('t', 'quaternion'), data=quat)
-    t.attrs[
-        "description"] = "Attitude quaternion, goes from spacecraft to ECI. The coefficient convention used has the real part in the first column."
+    t.attrs["description"] = "Attitude quaternion, goes from spacecraft to ECI. The coefficient convention used has " \
+                             "the real part in the first column."
     t.attrs["units"] = "dimensionless"
 
     fout.close()
