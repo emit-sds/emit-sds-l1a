@@ -1,15 +1,21 @@
-# emit-sds-l1a
+<h1 align="center">
+emit-sds-l1a
+</h1>
 
 
 ## Description
 
-Welcome to the emit-sds-l1a repository.  This repository contains scripts for executing the various EMIT L1A PGEs.  These PGEs include the following functions:
+
+_NOTE - See the **develop** branch - set as default - for the latest updates._
+
+Welcome to the EMIT Level Level 1A science data system repository.  To understand how this repository is linked to the rest of the emit-sds repositories, please see [the repository guide](https://github.com/emit-sds/emit-main/wiki/Repository-Guide).
+
+This repository contains scripts for executing the various EMIT L1A PGEs.  These PGEs include the following functions:
 * Depacketizing science frames from CCSDS stream files
 * Depacketizing engineering data from CCSDS
 * Decompressing and reassembling raw image files in ENVI format
 * Reformatting BAD STO files into NetCDF files
 
-To understand how this repository is linked to the rest of the emit-sds repositories, please see the [repository guide](https://github.com/emit-sds/emit-main/wiki/Repository-Guide).
 
 ## Dependency Requirements
 

@@ -8,6 +8,8 @@ import itertools
 import logging
 import zlib
 
+from emit_sds_l1a.frame import Frame
+
 from enum import Enum
 from sortedcontainers import SortedDict
 
@@ -15,6 +17,14 @@ logger = logging.getLogger("emit-sds-l1a")
 
 
 class PSCMismatchException(Exception):
+
+    def __init__(self, msg, pkt, next_psc, **kwargs):
+        super(Exception, self).__init__(msg, **kwargs)
+        self.pkt = pkt
+        self.next_psc = next_psc
+
+
+class InvalidFrameHeader(Exception):
     pass
 
 
@@ -132,7 +142,7 @@ class ScienceDataPacket(CCSDSPacket):
               enforced if these kwargs are used.
         """
         super(ScienceDataPacket, self).__init__(stream=stream, **kwargs)
-        logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
+        # logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
 
     @property
     def data(self):
@@ -146,7 +156,6 @@ class ScienceDataPacket(CCSDSPacket):
 
     @data.setter
     def data(self, data):
-        # TODO: Update this with pad byte
         if self.pad_byte_flag == 0:
             self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
         else:
@@ -236,8 +245,8 @@ class ScienceDataPacket(CCSDSPacket):
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "coarse_time={} fine_time{} pkt_seq_cnt={}>".format(
-            self.coarse_time, self.fine_time, self.pkt_seq_cnt)
+        pkt_str += "coarse_time={} fine_time{} seq_flags={} pkt_seq_cnt={}>".format(
+            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt)
         return pkt_str
 
 
@@ -257,10 +266,12 @@ class SDPProcessingStats:
             "last_pkt_size": 0,
             "frames_read": 0,
             "truncated_frame_errors": 0,
+            "corrupt_frames": [],
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
             "pkt_seq_errors": 0,
-            "missing_psc": []
+            "missing_psc": [],
+            "data_bytes_read": 0
         }
 
     def reset_bytes_since_last_index(self):
@@ -272,6 +283,7 @@ class SDPProcessingStats:
         self._stats["last_pkt_size"] = pkt.size
         self._stats["bytes_read"] += pkt.size
         self._stats["bytes_read_since_last_index"] += pkt.size
+        self._stats["data_bytes_read"] += len(pkt.data)
 
     def pkt_seq_err(self, current_pkt, expected_psc):
         self._stats["pkt_seq_errors"] += 1
@@ -301,7 +313,20 @@ class SDPProcessingStats:
     def truncated_frame(self):
         self._stats["truncated_frame_errors"] += 1
 
+    def corrupt_frame(self, frame):
+        name = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
+                         str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
+                         str(frame.acq_status), str(frame.processed_flag)])
+        if name not in self._stats["corrupt_frames"]:
+            self._stats["corrupt_frames"].append(name)
+
+    def get_data_bytes_read(self):
+        return self._stats["data_bytes_read"]
+
     def __str__(self):
+        self._stats["corrupt_frames"].sort()
+        corrupt_frames_str = "\n".join([i for i in self._stats["corrupt_frames"]])
+
         self._stats["missing_psc"].sort()
         missing_pscs_str = "\n".join([i for i in self._stats["missing_psc"]])
 
@@ -315,8 +340,10 @@ class SDPProcessingStats:
             f"Total CCSDS Packets Read: {self._stats['ccsds_pkts_read']}\n"
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
             f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
-            f"Total Frames Read: {self._stats['frames_read']}\n"
-            f"Truncated Frame Errors Encountered: {self._stats['truncated_frame_errors']}\n\n"
+            f"Total Frames Read: {self._stats['frames_read']}\n\n"
+            f"Corrupt Frame Errors Encountered: {len(self._stats['corrupt_frames'])}\n"
+            "Corrupt Frames:\n"
+            f"{corrupt_frames_str}\n\n"
             f"Invalid Packet Errors Encountered: {self._stats['invalid_pkt_errors']}\n"
             "Invalid Packet Values:\n"
             f"{invalid_pscs_str}\n\n"
@@ -333,6 +360,7 @@ class SciencePacketProcessor:
     SEC_HDR_LEN = 11
     MIN_PROCABLE_PKT_LEN = 8
     CRC_LEN = 4
+    MAX_DATA_LEN = 1479
 
     def __init__(self, stream_path):
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
@@ -353,6 +381,9 @@ class SciencePacketProcessor:
                 pkt_parts = self._read_pkt_parts(start_pkt)
                 logger.info(f"READ FRAME END")
                 return self._reconstruct_frame(pkt_parts)
+            except InvalidFrameHeader as e:
+                logger.warning(e)
+                logger.info("Skipping invalid frame. Continuing to look for next frame header... ")
             except EOFError:
                 logger.info(
                     "Received EOFError when reading files. No more data to process"
@@ -409,9 +440,8 @@ class SciencePacketProcessor:
                 self._cur_coarse = pkt.coarse_time
                 self._cur_fine = pkt.fine_time
                 self._processed_pkts[pkt_hash] = True
-                self._pkt_partial = pkt
                 msg = f"Expected next psc of {next_psc} not equal to the psc of the next packet read {pkt.pkt_seq_cnt}"
-                raise PSCMismatchException(msg)
+                raise PSCMismatchException(msg, pkt, next_psc)
 
     def _read_frame_start_packet(self):
         sync_word_warning_count = 0
@@ -445,6 +475,7 @@ class SciencePacketProcessor:
                     self._stats.reset_bytes_since_last_index()
                     # If sync word is found, check minimum processable length and read next packet if needed
                     logger.info(f"Found sync word at index {index} in packet {pkt}")
+                    logger.debug(f"Sync word is at data index {self._stats.get_data_bytes_read() - len(pkt.data) + index}")
                     # Remove data before sync word so packet data starts at the beginning of the frame
                     pkt.data = pkt.data[index:]
                     # Read follow on packet if data doesn't contain enough info (SYNC WORD + frame img size)
@@ -474,6 +505,7 @@ class SciencePacketProcessor:
             except PSCMismatchException as e:
                 logger.warning(e)
                 logger.warning("While looking for frame start packet, encountered PSC mismatch.")
+                self._pkt_partial = e.pkt
 
     def _read_pkt_parts(self, start_pkt):
         # Expected frame size is data length plus 1280 bytes for header
@@ -481,6 +513,8 @@ class SciencePacketProcessor:
         logger.debug(f"Start packet says frame img size is {expected_frame_len}")
 
         # Handle case where frame data is less than current packet data size
+        # TODO: This block is probably never executed since the start packet usually contains only the header and
+        #  nothing more
         if expected_frame_len < len(start_pkt.data):
             # Create a partial and then read in short frame
             partial_data = start_pkt.data[expected_frame_len:]
@@ -501,8 +535,22 @@ class SciencePacketProcessor:
         data_accum_len = len(start_pkt.data)
         logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
         pkt_parts = [start_pkt]
+        frame = None
 
         while True:
+            # After the first 1280 bytes are read, check the frame checksum
+            if data_accum_len >= 1280 and frame is None:
+                hdr_bytes = bytearray()
+                while len(hdr_bytes) < 1280:
+                    for pkt in pkt_parts:
+                        hdr_bytes += pkt.data
+                frame = Frame(hdr_bytes[:1280])
+                if frame.is_valid():
+                    logger.info(f"Found valid frame checksum for frame: {frame}")
+                else:
+                    self._pkt_partial = None
+                    raise InvalidFrameHeader(f"Frame failed checksum and is invalid: {frame}")
+
             if data_accum_len == expected_frame_len:
 
                 # We're done
@@ -536,9 +584,38 @@ class SciencePacketProcessor:
                 pkt = self._read_next_packet()
             except PSCMismatchException as e:
                 logger.warning(e)
-                logger.warning("While reading packet parts, encountered PSC mismatch. Returning truncated frame.")
-                self._stats.truncated_frame()
-                return pkt_parts
+
+                # Determine number of missing packets
+                pkt = e.pkt
+                num_missing = self._cur_psc - e.next_psc if self._cur_psc > e.next_psc \
+                    else self._cur_psc + pkt.CCSDS_PKT_SEC_COUNT_MOD - e.next_psc
+
+                logger.info(f"While reading packet parts, encountered {num_missing} missing packets. Attempting to "
+                            f"insert garbage packets")
+
+                # Only insert garbage packets if the remaining data length can accommodate it
+                for i in range(num_missing):
+                    remaining_data_len = expected_frame_len - data_accum_len
+                    if remaining_data_len == 0:
+                        logger.info(f"Not inserting any more garbage packets because end of frame.")
+                        break
+                    elif remaining_data_len >= self.MAX_DATA_LEN:
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + pkt.body[-self.CRC_LEN:]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                        pkt_parts.append(garbage_pkt)
+                        data_accum_len += self.MAX_DATA_LEN
+                        logger.info(f"Inserted garbage packet with {self.MAX_DATA_LEN} bytes of data. Accum data is "
+                                    f"now {data_accum_len}")
+                        self._stats.corrupt_frame(frame)
+                    elif 0 < remaining_data_len < self.MAX_DATA_LEN:
+                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(remaining_data_len) + pkt.body[-self.CRC_LEN:]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                        pkt_parts.append(garbage_pkt)
+                        data_accum_len += remaining_data_len
+                        logger.info(f"Inserted garbage packet with {remaining_data_len} bytes of data. Accum data is "
+                                    f"now {data_accum_len}")
+                        self._stats.corrupt_frame(frame)
+
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
             logger.debug(f"Adding {len(start_pkt.data)}.  Accum data is now {data_accum_len}")
