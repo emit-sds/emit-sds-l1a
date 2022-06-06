@@ -42,6 +42,7 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
     "no_match": "No match"
 }
 
+
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
