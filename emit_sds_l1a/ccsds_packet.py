@@ -217,12 +217,16 @@ class ScienceDataPacket(CCSDSPacket):
 
     @property
     def num_garbage_bytes(self):
-        return self.pkt_data_len + 1 - (self.SEC_HDR_LEN + self.real_pkt_data_len + 1 + self.CRC_LEN)
+        # return self.pkt_data_len + 1 - (self.SEC_HDR_LEN + self.real_pkt_data_len + 1 + self.CRC_LEN)
+        return self.pkt_data_len - self.real_pkt_data_len
 
     @property
     def is_valid(self):
         """"""
-        crc = int.from_bytes(self.body[-(self.CRC_LEN + self.num_garbage_bytes): -self.num_garbage_bytes], "big")
+        if self.num_garbage_bytes == 0:
+            crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
+        else:
+            crc = int.from_bytes(self.body[-(self.CRC_LEN + self.num_garbage_bytes): -self.num_garbage_bytes], "big")
         calc_crc = zlib.crc32(self.hdr_data + self.body[:-(self.CRC_LEN + self.num_garbage_bytes)])
         return calc_crc == crc
 
@@ -256,8 +260,10 @@ class ScienceDataPacket(CCSDSPacket):
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "coarse_time={} fine_time{} seq_flags={} pkt_seq_cnt={}>".format(
-            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt)
+        pkt_str += "coarse_time={} fine_time={} seq_flags={} pkt_seq_cnt={} is_valid={} ".format(
+            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt, self.is_valid)
+        pkt_str += "pkt_data_len={} real_pkt_data_len={} num_garbage_bytes={}>".format(
+            self.pkt_data_len, self.real_pkt_data_len, self.num_garbage_bytes)
         return pkt_str
 
 
@@ -404,6 +410,7 @@ class SciencePacketProcessor:
     def _read_next_packet(self):
         while True:
             pkt = ScienceDataPacket(stream=self.stream)
+            logger.debug(pkt)
             self._stats.ccsds_read(pkt)
             pkt_hash = str(pkt.coarse_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
 
