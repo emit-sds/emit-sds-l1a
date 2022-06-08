@@ -326,7 +326,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"Total cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
         f.write(f"List of cloudy frame numbers (if any):\n")
         if len(cloudy_frame_nums) > 0:
-            f.write("\n".join(i for i in cloudy_frame_nums))
+            f.write("\n".join(i for i in cloudy_frame_nums) + "\n")
         f.write("\n")
 
         # Report on corrupted lines (line count mismatch):
