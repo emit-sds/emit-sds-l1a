@@ -78,7 +78,7 @@ def main():
         with open(tmp_stream_path, "wb") as f:
             f.write(stream)
 
-    logger.info(f"Processing stream file {tmp_stream_path}")
+    logger.info(f"Processing stream file {tmp_stream_path} using FSW v{args.fsw_ver}")
     processor = SciencePacketProcessor(tmp_stream_path, fsw_ver=args.fsw_ver)
 
     frame_count = 0
