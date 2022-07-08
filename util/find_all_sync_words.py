@@ -12,6 +12,7 @@ HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
 parser = argparse.ArgumentParser()
 parser.add_argument("infile")
 parser.add_argument("method", type=int, default=1)
+parser.add_argument("pkt_format", default="1.3")
 args = parser.parse_args()
 
 in_file = open(args.infile, "rb")
@@ -22,7 +23,7 @@ print(datetime.datetime.now())
 cnt = 0
 while True:
     try:
-        pkt = ScienceDataPacket(in_file)
+        pkt = ScienceDataPacket(in_file, pkt_format=args.pkt_format)
         cnt += 1
         data += pkt.data
     except EOFError:
@@ -32,7 +33,6 @@ print(f"Count of packets: {cnt}")
 print(datetime.datetime.now())
 
 indices = []
-
 if args.method == 1:
     print("Using itertools...")
     data_iters = itertools.tee(data, len(HEADER_SYNC_WORD))

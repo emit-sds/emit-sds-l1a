@@ -126,13 +126,13 @@ class ScienceDataPacket(CCSDSPacket):
 
     HEADER_SYNC_WORD = 0x81FFFF81
     PRIMARY_HDR_LEN = 6
-    SEC_HDR_LEN = 11
     CRC_LEN = 4
 
-    def __init__(self, stream=None, **kwargs):
+    def __init__(self, stream=None, pkt_format="1.3", **kwargs):
         """Inititialize EngineeringDataPacket
         Arguments:
             stream - A file object from which to read data (default: None)
+            pkt_format - The format of the CCSDS packet defined by FSW version (typically 1.2.1 or 1.3)
         Keyword Arguments:
             - **hdr_data**: A bytes-like object containing 6-bytes
               of data that should be processed as a CCSDS Packet header.
@@ -142,24 +142,32 @@ class ScienceDataPacket(CCSDSPacket):
               enforced if these kwargs are used.
         """
         super(ScienceDataPacket, self).__init__(stream=stream, **kwargs)
-        # logger.debug("SDP primary header: " + str([bin(self.hdr_data[i])[2:].zfill(8) for i in range(self.PRIMARY_HDR_LEN)]))
+        self.pkt_format = pkt_format
+        self.SEC_HDR_LEN = 11 if pkt_format == "1.2.1" else 13
+        self.MAX_DATA_LEN = 1479 if pkt_format == "1.2.1" else 1477
 
     @property
     def data(self):
         if self.body:
-            if self.pad_byte_flag == 0:
-                return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+            if self.pkt_format == "1.2.1":
+                if self.pad_byte_flag == 0:
+                    return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+                else:
+                    return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + 1)]
             else:
-                return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + 1)]
+                return self.body[self.SEC_HDR_LEN: -(self.CRC_LEN + self.num_garbage_bytes)]
         else:
             return None
 
     @data.setter
     def data(self, data):
-        if self.pad_byte_flag == 0:
-            self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
+        if self.pkt_format == "1.2.1":
+            if self.pad_byte_flag == 0:
+                self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-self.CRC_LEN:]
+            else:
+                self.body = self.body[:self.SEC_HDR_LEN] + data + bytearray(1) + self.body[-self.CRC_LEN:]
         else:
-            self.body = self.body[:self.SEC_HDR_LEN] + data + bytearray(1) + self.body[-self.CRC_LEN:]
+            self.body = self.body[:self.SEC_HDR_LEN] + data + self.body[-(self.CRC_LEN + self.num_garbage_bytes):]
 
     @property
     def coarse_time(self):
@@ -169,7 +177,7 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract coarse time "
-                f"from EngineeringDataPacket. Returning default value: {t}"
+                f"from ScienceDataPacket. Returning default value: {t}"
             )
 
         return t
@@ -182,7 +190,7 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract fine time "
-                f"from EngineeringDataPacket. Returning default value: {t}"
+                f"from ScienceDataPacket. Returning default value: {t}"
             )
 
         return t
@@ -203,25 +211,47 @@ class ScienceDataPacket(CCSDSPacket):
         else:
             logging.error(
                 f"Insufficient data length {len(self.body)} to extract subheader id "
-                f"from EngineeringDataPacket. Returning default value: {shid}"
+                f"from ScienceDataPacket. Returning default value: {shid}"
             )
 
         return shid
 
     @property
-    def is_valid(self):
-        """"""
-        crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
-        calc_crc = zlib.crc32(self.hdr_data + self.body[:-self.CRC_LEN])
-        return calc_crc == crc
+    def real_pkt_data_len(self):
+        if self.pkt_format == "1.2.1":
+            return None
+        else:
+            rpdl = -1
+            if len(self.body) >= 13:
+                rpdl = int.from_bytes(self.body[11:13], "big")
+            else:
+                logging.error(
+                    f"Insufficient data length {len(self.body)} to extract real packet data length "
+                    f"from ScienceDataPacket. Returning default value: {rpdl}"
+                )
+
+            return rpdl
 
     @property
-    def payload_data(self):
-        """"""
-        if len(self.body) >= self.SEC_HDR_LEN + self.CRC_LEN:
-            return self.body[self.SEC_HDR_LEN: -self.CRC_LEN]
+    def num_garbage_bytes(self):
+        if self.pkt_format == "1.2.1":
+            return None
         else:
-            return bytearray()
+            return self.pkt_data_len - self.real_pkt_data_len
+
+    @property
+    def is_valid(self):
+        """"""
+        if self.pkt_format == "1.2.1":
+            crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
+            calc_crc = zlib.crc32(self.hdr_data + self.body[:-self.CRC_LEN])
+        else:
+            if self.num_garbage_bytes == 0:
+                crc = int.from_bytes(self.body[-self.CRC_LEN:], "big")
+            else:
+                crc = int.from_bytes(self.body[-(self.CRC_LEN + self.num_garbage_bytes): -self.num_garbage_bytes], "big")
+            calc_crc = zlib.crc32(self.hdr_data + self.body[:-(self.CRC_LEN + self.num_garbage_bytes)])
+        return calc_crc == crc
 
     @property
     def is_header_packet(self):
@@ -245,8 +275,10 @@ class ScienceDataPacket(CCSDSPacket):
     def __repr__(self):
         pkt_str = "<CCSDSPacket: pkt_ver_num={} pkt_type={} apid={} pkt_data_len={} ".format(
             self.pkt_ver_num, self.pkt_type, self.apid, self.pkt_data_len)
-        pkt_str += "coarse_time={} fine_time{} seq_flags={} pkt_seq_cnt={}>".format(
-            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt)
+        pkt_str += "coarse_time={} fine_time={} seq_flags={} pkt_seq_cnt={} is_valid={} ".format(
+            self.coarse_time, self.fine_time, self.seq_flags, self.pkt_seq_cnt, self.is_valid)
+        pkt_str += "pkt_data_len={} real_pkt_data_len={} num_garbage_bytes={}>".format(
+            self.pkt_data_len, self.real_pkt_data_len, self.num_garbage_bytes)
         return pkt_str
 
 
@@ -357,14 +389,12 @@ class SDPProcessingStats:
 class SciencePacketProcessor:
 
     HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
-    SEC_HDR_LEN = 11
     MIN_PROCABLE_PKT_LEN = 8
-    CRC_LEN = 4
-    MAX_DATA_LEN = 1479
 
-    def __init__(self, stream_path):
-        logger.debug(f"Initializing SciencePacketProcessor from path {stream_path}")
+    def __init__(self, stream_path, pkt_format="1.3"):
+        logger.debug(f"Initializing SciencePacketProcessor from path {stream_path} using FSW v{pkt_format}")
         self.stream = open(stream_path, "rb")
+        self.pkt_format = pkt_format
         self._cur_psc = -1
         self._cur_coarse = -1
         self._cur_fine = -1
@@ -392,7 +422,8 @@ class SciencePacketProcessor:
 
     def _read_next_packet(self):
         while True:
-            pkt = ScienceDataPacket(stream=self.stream)
+            pkt = ScienceDataPacket(stream=self.stream, pkt_format=self.pkt_format)
+            logger.debug(pkt)
             self._stats.ccsds_read(pkt)
             pkt_hash = str(pkt.coarse_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
 
@@ -516,14 +547,19 @@ class SciencePacketProcessor:
         # TODO: This block is probably never executed since the start packet usually contains only the header and
         #  nothing more
         if expected_frame_len < len(start_pkt.data):
+            logger.info("Creating partial packet - frame length is less than the length of the packet's data.")
             # Create a partial and then read in short frame
             partial_data = start_pkt.data[expected_frame_len:]
-            # TODO: Add garbage byte here?
-            if start_pkt.pad_byte_flag == 0:
-                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + start_pkt.body[-self.CRC_LEN:]
+            if self.pkt_format == "1.2.1":
+                if start_pkt.pad_byte_flag == 0:
+                    body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + start_pkt.body[-start_pkt.CRC_LEN:]
+                else:
+                    body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + bytearray(1) + \
+                           start_pkt.body[-start_pkt.CRC_LEN:]
             else:
-                body = start_pkt.body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + start_pkt.body[-self.CRC_LEN:]
-            partial = ScienceDataPacket(hdr_data=start_pkt.hdr_data, body=body)
+                body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + \
+                       start_pkt.body[-(start_pkt.CRC_LEN + start_pkt.num_garbage_bytes):]
+            partial = ScienceDataPacket(hdr_data=start_pkt.hdr_data, body=body, pkt_format=self.pkt_format)
             self._pkt_partial = partial
 
             start_pkt.data = start_pkt.data[:expected_frame_len]
@@ -564,22 +600,27 @@ class SciencePacketProcessor:
                 logger.debug("Case 2 - accumulated data length exceeds expected length. Trimming last packet to "
                              "expected size and creating partial packet of remaining bytes.")
                 # Create new partial
+                logger.info("Creating partial packet - the accum data length is greater than the expected frame length")
                 remaining_bytes = data_accum_len - expected_frame_len
                 partial_data = pkt_parts[-1].data[-remaining_bytes:]
-                # TODO: Add pad byte?
-                if pkt_parts[-1].pad_byte_flag == 0:
-                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + pkt_parts[-1].body[-self.CRC_LEN:]
+                if self.pkt_format == "1.2.1":
+                    if pkt_parts[-1].pad_byte_flag == 0:
+                        body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + \
+                               pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
+                    else:
+                        body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + bytearray(1) + \
+                               pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
                 else:
-                    body = pkt_parts[-1].body[:self.SEC_HDR_LEN] + partial_data + bytearray(1) + \
-                        pkt_parts[-1].body[-self.CRC_LEN:]
-                partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body)
+                    body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + \
+                           pkt_parts[-1].body[-(pkt_parts[-1].CRC_LEN + pkt_parts[-1].num_garbage_bytes):]
+                partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body, pkt_format=self.pkt_format)
                 self._pkt_partial = partial
 
                 # Remove extra data from last packet in packet parts
                 pkt_parts[-1].data = pkt_parts[-1].data[:-remaining_bytes]
                 return pkt_parts
 
-            # If neither of the above end cases is met,  then read the next packet
+            # If neither of the above end cases is met, then read the next packet
             try:
                 pkt = self._read_next_packet()
             except PSCMismatchException as e:
@@ -599,17 +640,35 @@ class SciencePacketProcessor:
                     if remaining_data_len == 0:
                         logger.info(f"Not inserting any more garbage packets because end of frame.")
                         break
-                    elif remaining_data_len >= self.MAX_DATA_LEN:
-                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(self.MAX_DATA_LEN) + pkt.body[-self.CRC_LEN:]
-                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                    elif remaining_data_len >= pkt.MAX_DATA_LEN:
+                        if self.pkt_format == "1.2.1":
+                            if pkt.pad_byte_flag == 0:
+                                body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + \
+                                       pkt.body[-pkt.CRC_LEN:]
+                            else:
+                                body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + bytearray(1) + \
+                                       pkt.body[-pkt.CRC_LEN:]
+                        else:
+                            body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + \
+                                   pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body, pkt_format=self.pkt_format)
                         pkt_parts.append(garbage_pkt)
-                        data_accum_len += self.MAX_DATA_LEN
-                        logger.info(f"Inserted garbage packet with {self.MAX_DATA_LEN} bytes of data. Accum data is "
+                        data_accum_len += pkt.MAX_DATA_LEN
+                        logger.info(f"Inserted garbage packet with {pkt.MAX_DATA_LEN} bytes of data. Accum data is "
                                     f"now {data_accum_len}")
                         self._stats.corrupt_frame(frame)
-                    elif 0 < remaining_data_len < self.MAX_DATA_LEN:
-                        body = pkt.body[:self.SEC_HDR_LEN] + bytearray(remaining_data_len) + pkt.body[-self.CRC_LEN:]
-                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body)
+                    elif 0 < remaining_data_len < pkt.MAX_DATA_LEN:
+                        if self.pkt_format == "1.2.1":
+                            if pkt.pad_byte_flag == 0:
+                                body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + \
+                                       pkt.body[-pkt.CRC_LEN:]
+                            else:
+                                body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + bytearray(1) + \
+                                       pkt.body[-pkt.CRC_LEN:]
+                        else:
+                            body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + \
+                                   pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
+                        garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body, pkt_format=self.pkt_format)
                         pkt_parts.append(garbage_pkt)
                         data_accum_len += remaining_data_len
                         logger.info(f"Inserted garbage packet with {remaining_data_len} bytes of data. Accum data is "
