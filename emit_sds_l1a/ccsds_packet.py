@@ -555,10 +555,10 @@ class SciencePacketProcessor:
                     body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + start_pkt.body[-start_pkt.CRC_LEN:]
                 else:
                     body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + bytearray(1) + \
-                           start_pkt.body[-start_pkt.CRC_LEN:]
+                        start_pkt.body[-start_pkt.CRC_LEN:]
             else:
                 body = start_pkt.body[:start_pkt.SEC_HDR_LEN] + partial_data + \
-                       start_pkt.body[-(start_pkt.CRC_LEN + start_pkt.num_garbage_bytes):]
+                    start_pkt.body[-(start_pkt.CRC_LEN + start_pkt.num_garbage_bytes):]
             partial = ScienceDataPacket(hdr_data=start_pkt.hdr_data, body=body, pkt_format=self.pkt_format)
             self._pkt_partial = partial
 
@@ -606,13 +606,13 @@ class SciencePacketProcessor:
                 if self.pkt_format == "1.2.1":
                     if pkt_parts[-1].pad_byte_flag == 0:
                         body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + \
-                               pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
+                            pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
                     else:
                         body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + bytearray(1) + \
-                               pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
+                            pkt_parts[-1].body[-pkt_parts[-1].CRC_LEN:]
                 else:
                     body = pkt_parts[-1].body[:pkt_parts[-1].SEC_HDR_LEN] + partial_data + \
-                           pkt_parts[-1].body[-(pkt_parts[-1].CRC_LEN + pkt_parts[-1].num_garbage_bytes):]
+                        pkt_parts[-1].body[-(pkt_parts[-1].CRC_LEN + pkt_parts[-1].num_garbage_bytes):]
                 partial = ScienceDataPacket(hdr_data=pkt_parts[-1].hdr_data, body=body, pkt_format=self.pkt_format)
                 self._pkt_partial = partial
 
@@ -644,13 +644,13 @@ class SciencePacketProcessor:
                         if self.pkt_format == "1.2.1":
                             if pkt.pad_byte_flag == 0:
                                 body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + \
-                                       pkt.body[-pkt.CRC_LEN:]
+                                    pkt.body[-pkt.CRC_LEN:]
                             else:
                                 body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + bytearray(1) + \
-                                       pkt.body[-pkt.CRC_LEN:]
+                                    pkt.body[-pkt.CRC_LEN:]
                         else:
                             body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(pkt.MAX_DATA_LEN) + \
-                                   pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
+                                pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
                         garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body, pkt_format=self.pkt_format)
                         pkt_parts.append(garbage_pkt)
                         data_accum_len += pkt.MAX_DATA_LEN
@@ -661,13 +661,13 @@ class SciencePacketProcessor:
                         if self.pkt_format == "1.2.1":
                             if pkt.pad_byte_flag == 0:
                                 body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + \
-                                       pkt.body[-pkt.CRC_LEN:]
+                                    pkt.body[-pkt.CRC_LEN:]
                             else:
                                 body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + bytearray(1) + \
-                                       pkt.body[-pkt.CRC_LEN:]
+                                    pkt.body[-pkt.CRC_LEN:]
                         else:
                             body = pkt.body[:pkt.SEC_HDR_LEN] + bytearray(remaining_data_len) + \
-                                   pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
+                                pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
                         garbage_pkt = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body, pkt_format=self.pkt_format)
                         pkt_parts.append(garbage_pkt)
                         data_accum_len += remaining_data_len
