@@ -366,6 +366,9 @@ def main():
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
     parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=320000)
+    parser.add_argument("--orbit", help="Orbit number (padded)", default="00000")
+    parser.add_argument("--scene", help="Scene in orbit number (padded)", default="000")
+    parser.add_argument("--submode", help="Submode (science or dark)", default="science")
     parser.add_argument("--test_mode", action="store_true",
                         help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
@@ -410,7 +413,10 @@ def main():
     report_txt += f"Input frames directory: {args.frames_dir}\n"
     expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[3]
     report_txt += f"Total number of expected frames (from frame header): " \
-        f"{int(expected_frame_num_str)}\n\n"
+        f"{int(expected_frame_num_str)}\n"
+    report_txt += f"Orbit: {args.orbit}\n"
+    report_txt += f"Scene: {args.scene}\n"
+    report_txt += f"Submode: {args.submode}\n\n"
 
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
@@ -580,14 +586,16 @@ def main():
                                               num, expected_frame_num_str, "7"])))
     frame_data_paths.sort(key=lambda x: os.path.basename(x).split("_")[2])
 
+    # Update report based on frames
+    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
+    report_txt += f"Number of lines per frame: {num_lines}\n\n"
+
     # Loop through the frames and create acquisitions
     i = 0
     num_frames = len(frame_data_paths)
     if args.chunksize % num_lines != 0:
         raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of {num_lines}")
     frame_chunksize = min(args.chunksize // num_lines, num_frames)
-    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
-    report_txt += f"Number of lines per frame: {num_lines}\n\n"
     report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // num_lines} frames\n"
     report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * num_lines} lines or " \
         f"{frame_chunksize} frames\n\n"
