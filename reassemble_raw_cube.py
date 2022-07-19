@@ -125,8 +125,8 @@ def get_utc_time_from_gps(gps_time):
 
 
 def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
-                           coadd_mode, num_bands, num_lines, instrument_mode, image_dir, report_text,
-                           failed_decompression_list, uncompressed_list, missing_frame_nums, logger):
+                           coadd_mode, num_bands, num_lines, image_dir, report_text, failed_decompression_list,
+                           uncompressed_list, missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -259,9 +259,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f'Stop time: {stop_time}\n')
         f.write(f"Number of samples: 1280\n")
         f.write(f"Number of bands: {num_bands}\n")
-        f.write(f"Number of lines: {num_lines_in_acq}\n")
-        f.write(f"Instrument mode: {instrument_mode}\n")
-        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n")
+        f.write(f"Number of lines: {num_lines_in_acq}\n\n")
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
@@ -413,7 +411,8 @@ def main():
     report_txt += f"Input frames directory: {args.frames_dir}\n"
     expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[3]
     report_txt += f"Total number of expected frames (from frame header): " \
-        f"{int(expected_frame_num_str)}\n"
+        f"{int(expected_frame_num_str)}\n\n"
+
     report_txt += f"Orbit: {args.orbit}\n"
     report_txt += f"Scene: {args.scene}\n"
     report_txt += f"Submode: {args.submode}\n\n"
@@ -587,7 +586,9 @@ def main():
     frame_data_paths.sort(key=lambda x: os.path.basename(x).split("_")[2])
 
     # Update report based on frames
-    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
+    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n\n"
+    report_txt += f"Instrument mode: {instrument_mode}\n"
+    report_txt += f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n"
     report_txt += f"Number of lines per frame: {num_lines}\n\n"
 
     # Loop through the frames and create acquisitions
@@ -614,7 +615,6 @@ def main():
                                         coadd_mode=coadd_mode,
                                         num_bands=num_bands,
                                         num_lines=num_lines,
-                                        instrument_mode=instrument_mode,
                                         image_dir=image_dir,
                                         report_text=report_txt,
                                         failed_decompression_list=failed_decompression_list,
@@ -636,7 +636,6 @@ def main():
                                     coadd_mode=coadd_mode,
                                     num_bands=num_bands,
                                     num_lines=num_lines,
-                                    instrument_mode=instrument_mode,
                                     image_dir=image_dir,
                                     report_text=report_txt,
                                     failed_decompression_list=failed_decompression_list,
@@ -649,9 +648,6 @@ def main():
     dcid_report_path = os.path.join(args.work_dir, f"{dcid}_reassembly_report.txt")
     with open(dcid_report_path, "w") as f:
         f.write(report_txt)
-        # Instrument mode
-        f.write(f"Instrument mode: {instrument_mode}\n")
-        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n")
         # Decompression errors
         f.write(f"Total decompression errors in this data collection: {len(failed_decompression_list)}\n")
         f.write("List of frame numbers that failed decompression (if any):\n")
