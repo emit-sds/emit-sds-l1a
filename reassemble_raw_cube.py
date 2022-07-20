@@ -39,6 +39,7 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
     "cold_img_slow": "Maximum integration time Cold FPA",
     "warm_img": "Nominal Warm FPA",
     "warm_img_short_integration": "Minimum integration time Warm FPA",
+    "warm_img_row0_row327_not_flight": "Older version of Nominal Warm FPA used in testing",
     "no_match": "No match"
 }
 
