@@ -27,6 +27,7 @@ def main():
                     "    * Depacketization summary/report file named depacketize_science_frames_report.txt (default)\n",
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
+    parser.add_argument("--pkt_format", help="Flight software version to use", default="1.3")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--prev_stream_path", help="Path to previous CCSDS stream file")
     parser.add_argument("--prev_bytes_to_read", help="How many bytes to read from the end of the previous stream",
@@ -77,8 +78,8 @@ def main():
         with open(tmp_stream_path, "wb") as f:
             f.write(stream)
 
-    logger.info(f"Processing stream file {tmp_stream_path}")
-    processor = SciencePacketProcessor(tmp_stream_path)
+    logger.info(f"Processing stream file {tmp_stream_path} using packet format from FSW v{args.pkt_format}")
+    processor = SciencePacketProcessor(tmp_stream_path, pkt_format=args.pkt_format)
 
     frame_count = 0
     while True:

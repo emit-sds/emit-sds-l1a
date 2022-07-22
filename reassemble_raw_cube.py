@@ -39,6 +39,7 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
     "cold_img_slow": "Maximum integration time Cold FPA",
     "warm_img": "Nominal Warm FPA",
     "warm_img_short_integration": "Minimum integration time Warm FPA",
+    "warm_img_row0_row327_not_flight": "Older version of Nominal Warm FPA used in testing",
     "no_match": "No match"
 }
 
@@ -125,8 +126,8 @@ def get_utc_time_from_gps(gps_time):
 
 
 def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
-                           coadd_mode, num_bands, num_lines, instrument_mode, image_dir, report_text,
-                           failed_decompression_list, uncompressed_list, missing_frame_nums, logger):
+                           coadd_mode, num_bands, num_lines, image_dir, report_text, failed_decompression_list,
+                           uncompressed_list, missing_frame_nums, logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -259,9 +260,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f'Stop time: {stop_time}\n')
         f.write(f"Number of samples: 1280\n")
         f.write(f"Number of bands: {num_bands}\n")
-        f.write(f"Number of lines: {num_lines_in_acq}\n")
-        f.write(f"Instrument mode: {instrument_mode}\n")
-        f.write(f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n")
+        f.write(f"Number of lines: {num_lines_in_acq}\n\n")
 
         f.write(f"First frame number in acquisition: {str(start_index).zfill(5)}\n")
         f.write(f"Last frame number in acquisition: {str(stop_index).zfill(5)}\n\n")
@@ -326,7 +325,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"Total cloudy frames encountered in this acquisition: {len(cloudy_frame_nums)}\n")
         f.write(f"List of cloudy frame numbers (if any):\n")
         if len(cloudy_frame_nums) > 0:
-            f.write("\n".join(i for i in cloudy_frame_nums))
+            f.write("\n".join(i for i in cloudy_frame_nums) + "\n")
         f.write("\n")
 
         # Report on corrupted lines (line count mismatch):
@@ -339,6 +338,9 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                     break
                 f.write(f"{str(line_num).zfill(6)}\n")
         f.write("\n")
+
+    result = {"corrupt_lines": corrupt_lines}
+    return result
 
 
 def main():
@@ -363,6 +365,9 @@ def main():
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
     parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=320000)
+    parser.add_argument("--orbit", help="Orbit number (padded)", default="00000")
+    parser.add_argument("--scene", help="Scene in orbit number (padded)", default="000")
+    parser.add_argument("--submode", help="Submode (science or dark)", default="science")
     parser.add_argument("--test_mode", action="store_true",
                         help="If enabled, don't throw errors regarding unprocessed or un-coadded data")
 
@@ -408,6 +413,10 @@ def main():
     expected_frame_num_str = os.path.basename(frame_paths[0]).split("_")[3]
     report_txt += f"Total number of expected frames (from frame header): " \
         f"{int(expected_frame_num_str)}\n\n"
+
+    report_txt += f"Orbit: {args.orbit}\n"
+    report_txt += f"Scene: {args.scene}\n"
+    report_txt += f"Submode: {args.submode}\n\n"
 
     # Set up various lists to track frame parameters (num bands, processed, coadd mode)
     frame_data_paths = []
@@ -577,58 +586,95 @@ def main():
                                               num, expected_frame_num_str, "7"])))
     frame_data_paths.sort(key=lambda x: os.path.basename(x).split("_")[2])
 
+    # Update report based on frames
+    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n\n"
+    report_txt += f"Instrument mode: {instrument_mode}\n"
+    report_txt += f"Instrument mode description: {INSTRUMENT_MODE_DESCRIPTIONS[instrument_mode]}\n\n"
+    report_txt += f"Number of lines per frame: {num_lines}\n\n"
+
     # Loop through the frames and create acquisitions
     i = 0
     num_frames = len(frame_data_paths)
     if args.chunksize % num_lines != 0:
         raise RuntimeError(f"Chunksize of {args.chunksize} must be a multiple of {num_lines}")
     frame_chunksize = min(args.chunksize // num_lines, num_frames)
-    report_txt += f"Partition: {'processed' if processed_flag == 1 else 'raw'}\n"
-    report_txt += f"Number of lines per frame: {num_lines}\n"
     report_txt += f"Chunksize provided by args: {args.chunksize} lines or {args.chunksize // num_lines} frames\n"
     report_txt += f"Chunksize used to to split up acquisitions: {frame_chunksize * num_lines} lines or " \
         f"{frame_chunksize} frames\n\n"
     logger.info(f"Using frame chunksize of {frame_chunksize} to split data collection into acquisitions.")
+    total_corrupt_lines = 0
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
-        reassemble_acquisition(acq_data_paths=acq_data_paths,
-                               start_index=i,
-                               stop_index=i + frame_chunksize - 1,
-                               start_time=start_stop_times[i][0],
-                               stop_time=start_stop_times[i + frame_chunksize - 1][1],
-                               timing_info=timing_info,
-                               processed_flag=processed_flag,
-                               coadd_mode=coadd_mode,
-                               num_bands=num_bands,
-                               num_lines=num_lines,
-                               instrument_mode=instrument_mode,
-                               image_dir=image_dir,
-                               report_text=report_txt,
-                               failed_decompression_list=failed_decompression_list,
-                               uncompressed_list=uncompressed_list,
-                               missing_frame_nums=missing_frame_nums,
-                               logger=logger)
+        result = reassemble_acquisition(acq_data_paths=acq_data_paths,
+                                        start_index=i,
+                                        stop_index=i + frame_chunksize - 1,
+                                        start_time=start_stop_times[i][0],
+                                        stop_time=start_stop_times[i + frame_chunksize - 1][1],
+                                        timing_info=timing_info,
+                                        processed_flag=processed_flag,
+                                        coadd_mode=coadd_mode,
+                                        num_bands=num_bands,
+                                        num_lines=num_lines,
+                                        image_dir=image_dir,
+                                        report_text=report_txt,
+                                        failed_decompression_list=failed_decompression_list,
+                                        uncompressed_list=uncompressed_list,
+                                        missing_frame_nums=missing_frame_nums,
+                                        logger=logger)
         i += frame_chunksize
+        total_corrupt_lines += len(result["corrupt_lines"])
+
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
-    reassemble_acquisition(acq_data_paths=acq_data_paths,
-                           start_index=i,
-                           stop_index=num_frames - 1,
-                           start_time=start_stop_times[i][0],
-                           stop_time=start_stop_times[num_frames - 1][1],
-                           timing_info=timing_info,
-                           processed_flag=processed_flag,
-                           coadd_mode=coadd_mode,
-                           num_bands=num_bands,
-                           num_lines=num_lines,
-                           instrument_mode=instrument_mode,
-                           image_dir=image_dir,
-                           report_text=report_txt,
-                           failed_decompression_list=failed_decompression_list,
-                           uncompressed_list=uncompressed_list,
-                           missing_frame_nums=missing_frame_nums,
-                           logger=logger)
+    result = reassemble_acquisition(acq_data_paths=acq_data_paths,
+                                    start_index=i,
+                                    stop_index=num_frames - 1,
+                                    start_time=start_stop_times[i][0],
+                                    stop_time=start_stop_times[num_frames - 1][1],
+                                    timing_info=timing_info,
+                                    processed_flag=processed_flag,
+                                    coadd_mode=coadd_mode,
+                                    num_bands=num_bands,
+                                    num_lines=num_lines,
+                                    image_dir=image_dir,
+                                    report_text=report_txt,
+                                    failed_decompression_list=failed_decompression_list,
+                                    uncompressed_list=uncompressed_list,
+                                    missing_frame_nums=missing_frame_nums,
+                                    logger=logger)
+    total_corrupt_lines += len(result["corrupt_lines"])
+
+    # Write out a report for the data collection as a whole
+    dcid_report_path = os.path.join(args.work_dir, f"{dcid}_reassembly_report.txt")
+    with open(dcid_report_path, "w") as f:
+        f.write(report_txt)
+        # Decompression errors
+        f.write(f"Total decompression errors in this data collection: {len(failed_decompression_list)}\n")
+        f.write("List of frame numbers that failed decompression (if any):\n")
+        if len(failed_decompression_list) > 0:
+            f.write("\n".join(i for i in failed_decompression_list) + "\n")
+        f.write("\n")
+        # Missing frames
+        f.write(f"Total missing frames in this data collection: {len(missing_frame_nums)}\n")
+        f.write("List of missing frame numbers (if any):\n")
+        if len(missing_frame_nums) > 0:
+            f.write("\n".join(i for i in missing_frame_nums) + "\n")
+        f.write("\n")
+        # Cloudy frames
+        cloudy_frame_nums = []
+        for p in frame_data_paths:
+            if int(os.path.basename(p).split("_")[4]) in (4, 5):
+                cloudy_frame_nums.append(int(os.path.basename(p).split("_")[2]))
+        cloudy_frame_nums = [str(num).zfill(5) for num in cloudy_frame_nums]
+        cloudy_frame_nums.sort()
+        f.write(f"Total cloudy frames in this data collection: {len(cloudy_frame_nums)}\n")
+        f.write(f"List of cloudy frame numbers (if any):\n")
+        if len(cloudy_frame_nums) > 0:
+            f.write("\n".join(i for i in cloudy_frame_nums) + "\n")
+        f.write("\n")
+        # Corrupt Lines
+        f.write(f"Total corrupt lines (line count mismatches) in this data collection: {total_corrupt_lines}\n")
 
     logger.info("Done")
 
