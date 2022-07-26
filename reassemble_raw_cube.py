@@ -365,7 +365,7 @@ def main():
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
     parser.add_argument("--chunksize", help="Number of lines per output acquisition.", type=int, default=320000)
-    parser.add_argument("--orbit", help="Orbit number (padded)", default="00000")
+    parser.add_argument("--orbit", help="Orbit number (padded)", default="0000000")
     parser.add_argument("--scene", help="Scene in orbit number (padded)", default="000")
     parser.add_argument("--submode", help="Submode (science or dark)", default="science")
     parser.add_argument("--test_mode", action="store_true",
