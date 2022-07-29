@@ -119,7 +119,7 @@ def interpolate_missing_gps_times(lt_rows):
 
     for row in lt_rows:
         if int(row[1]) == -1:
-            row[1] = m * int(row[0]) + b
+            row[1] = str(m * int(row[0]) + b).zfill(19)
 
     return lt_rows
 
@@ -283,7 +283,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     lt_rows = interpolate_missing_gps_times(lt_rows)
     lt_file = open(line_timestamps_path, "w")
     for row in lt_rows:
-        lt_file.write(" ".join(row))
+        lt_file.write(" ".join(row) + "\n")
     lt_file.close()
 
     # Create a reassembly report
