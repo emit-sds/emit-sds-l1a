@@ -105,6 +105,24 @@ def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str
 
     return lc_lookup
 
+def interpolate_missing_gps_times(lt_rows):
+    # Populate x, y from available gps times
+    x = []
+    y = []
+    for row in lt_rows:
+        if int(row[1]) >= 0:
+            x.append(int(row[0]))
+            y.append(int(row[1]))
+    x = np.array(x)
+    y = np.array(y)
+    m, b = np.polyfit(x, y, 1)
+
+    for row in lt_rows:
+        if int(row[1]) == -1:
+            row[1] = m * int(row[0]) + b
+
+    return lt_rows
+
 
 def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
     # Need to adjust line timestamp in the case where the clock rolls over (which happens about every 12 hours)
@@ -158,7 +176,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
 
     cloudy_frame_nums = []
     line = 0
-    lt_file = open(line_timestamps_path, "w")
+    lt_rows = []
     lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
@@ -178,6 +196,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
             # DN values are in the range from 0 to 16384
             if processed_flag == 1:
                 output[line:line + num_lines, 1:, :] = output[line:line + num_lines, 1:, :] + 8192
+            else:
+                output[line:line + num_lines, 1:, :] = np.int16((np.int64(output[line:line + num_lines, 1:, :]) + 32768) >> 2)
 
             # Read line headers and process below
             line_headers = frame[:, 0, :]
@@ -211,13 +231,25 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                     os_time=timing_info[int(frame_num_str)]['os_time']
                 )
                 utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(nanosecs_since_gps).zfill(19)} "
-                              f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
+
+                # Write to timestamps file, but must insert -1 gps time for corrupt lines
+                if lc_lookup is None:
+                    # This line is corrupt since all lines in frame are corrupt in this case
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
+                                    str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
                 if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
                     logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
                     corrupt_lines.append(start_line_in_frame + i)
                     num_valid_lines -= 1
+                    # Since this line is corrupt, use -1 for gps time
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
+                                    str(line_timestamp).zfill(10), str(line_count).zfill(10)])
+
+                else:
+                    # Not corrupt, so write all the values
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(nanosecs_since_gps).zfill(19),
+                                    utc_time_str, str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
         # Cloudy frames
         if status in (4, 5):
@@ -226,26 +258,32 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         # Missing frames
         if status == 6:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_FRAME_FLAG,
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         # Failed decompression
         if status == 7:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
                             fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         line += num_lines
     del output
+
+    # Generate gpstime_lookup and replace -1 gps times with interpolated values
+    lt_rows = interpolate_missing_gps_times(lt_rows)
+    lt_file = open(line_timestamps_path, "w")
+    for row in lt_rows:
+        lt_file.write(" ".join(row))
     lt_file.close()
 
     # Create a reassembly report
