@@ -119,7 +119,7 @@ def interpolate_missing_gps_times(lt_rows):
 
     for row in lt_rows:
         if int(row[1]) == -1:
-            row[1] = str(m * int(row[0]) + b).zfill(19)
+            row[1] = str(int(m * int(row[0]) + b)).zfill(19)
 
     return lt_rows
 
