@@ -213,6 +213,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                                    f"Assuming that all lines are corrupt.")
                     corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
                     num_valid_lines -= num_lines
+                    # Set all values in these lines to corrupt flag value
+                    output[line:line + num_lines, 1:, :] = CORRUPT_LINE_FLAG
                 else:
                     logger.info(f"Found a good line count in frame {frame_num_str} and generated a line count lookup.")
 
@@ -239,10 +241,20 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                                     str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
                 if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
-                    logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
-                    corrupt_lines.append(start_line_in_frame + i)
-                    num_valid_lines -= 1
-                    # Since this line is corrupt, use -1 for gps time
+                    logger.warning(f"Found corrupt line header at line number {start_line_in_frame + i}")
+                    corrupt_line_num = start_line_in_frame + i
+                    prev_corrupt_line_num = corrupt_line_num - 1
+                    if prev_corrupt_line_num >= 0 and prev_corrupt_line_num not in corrupt_lines:
+                        logger.warning(f"Setting previous line at index {prev_corrupt_line_num} as corrupt")
+                        corrupt_lines.append(prev_corrupt_line_num)
+                        num_valid_lines -= 1
+                        output[prev_corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
+                    if corrupt_line_num not in corrupt_lines:
+                        logger.warning(f"Setting line at index {corrupt_line_num} as corrupt")
+                        corrupt_lines.append(corrupt_line_num)
+                        num_valid_lines -= 1
+                        output[corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
+                    # Since this line header is corrupt, use -1 for gps time
                     lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
                                     str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
@@ -280,7 +292,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     del output
 
     # Generate gpstime_lookup and replace -1 gps times with interpolated values
-    lt_rows = interpolate_missing_gps_times(lt_rows)
+    if num_valid_lines >= 2:
+        lt_rows = interpolate_missing_gps_times(lt_rows)
     lt_file = open(line_timestamps_path, "w")
     for row in lt_rows:
         lt_file.write(" ".join(row) + "\n")
