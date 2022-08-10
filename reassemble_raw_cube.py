@@ -384,9 +384,6 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"List of corrupt lines (if any):\n")
         if len(corrupt_lines) > 0:
             for i, line_num in enumerate(corrupt_lines):
-                if i > 100:
-                    f.write(f"More than 100 corrupt lines. See line timestamp file.\n")
-                    break
                 f.write(f"{str(line_num).zfill(6)}\n")
         f.write("\n")
 
