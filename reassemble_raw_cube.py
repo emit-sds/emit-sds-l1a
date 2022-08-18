@@ -617,6 +617,7 @@ def main():
     missing_frame_nums.sort()
     # Now remove failed decompression frame nums from missing frame nums list
     missing_frame_nums = list(set(missing_frame_nums) - set(failed_decompression_list))
+    missing_frame_nums.sort()
 
     logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
