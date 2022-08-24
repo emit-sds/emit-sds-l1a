@@ -15,6 +15,7 @@ import subprocess
 
 from ait.core import dmc
 from argparse import RawTextHelpFormatter
+from collections import OrderedDict
 
 import numpy as np
 import spectral.io.envi as envi
@@ -105,6 +106,7 @@ def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str
 
     return lc_lookup
 
+
 def interpolate_missing_gps_times(lt_rows):
     # Populate x, y from available gps times
     x = []
@@ -180,12 +182,14 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
     lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
+    frame_corrupt_line_map = OrderedDict()
     num_valid_lines = 0
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
         start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
         logger.info(f"Adding frame {path}")
+        frame_corrupt_line_map[os.path.basename(path)] = []
         # Non-cloudy frames
         if status in (0, 1):
             num_valid_lines += num_lines
@@ -213,6 +217,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                                    f"Assuming that all lines are corrupt.")
                     corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
                     num_valid_lines -= num_lines
+                    frame_corrupt_line_map[os.path.basename(path)] = list(range(num_lines))
                     # Set all values in these lines to corrupt flag value
                     output[line:line + num_lines, 1:, :] = CORRUPT_LINE_FLAG
                 else:
@@ -248,11 +253,13 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                         logger.warning(f"Setting previous line at index {prev_corrupt_line_num} as corrupt")
                         corrupt_lines.append(prev_corrupt_line_num)
                         num_valid_lines -= 1
+                        frame_corrupt_line_map[os.path.basename(path)].append(i - 1)
                         output[prev_corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
                     if corrupt_line_num not in corrupt_lines:
                         logger.warning(f"Setting line at index {corrupt_line_num} as corrupt")
                         corrupt_lines.append(corrupt_line_num)
                         num_valid_lines -= 1
+                        frame_corrupt_line_map[os.path.basename(path)].append(i)
                         output[corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
                     # Since this line header is corrupt, use -1 for gps time
                     lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
@@ -387,7 +394,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                 f.write(f"{str(line_num).zfill(6)}\n")
         f.write("\n")
 
-    result = {"corrupt_lines": corrupt_lines}
+    result = {"corrupt_lines": corrupt_lines, "frame_corrupt_line_map": frame_corrupt_line_map}
     return result
 
 
@@ -724,6 +731,11 @@ def main():
         f.write("\n")
         # Corrupt Lines
         f.write(f"Total corrupt lines (line count mismatches) in this data collection: {total_corrupt_lines}\n")
+        f.write(f"List of corrupt lines (if any):\n")
+        for frame, line_nums in result["frame_corrupt_line_map"].items():
+            if len(line_nums) > 0:
+                line_nums.sort()
+                f.write(f"{frame}: {line_nums}\n")
 
     logger.info("Done")
 
