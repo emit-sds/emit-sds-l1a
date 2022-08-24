@@ -659,6 +659,7 @@ def main():
         f"{frame_chunksize} frames\n\n"
     logger.info(f"Using frame chunksize of {frame_chunksize} to split data collection into acquisitions.")
     total_corrupt_lines = 0
+    combined_frame_corrupt_line_map = OrderedDict()
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
@@ -680,6 +681,8 @@ def main():
                                         logger=logger)
         i += frame_chunksize
         total_corrupt_lines += len(result["corrupt_lines"])
+        for key, value in result["frame_corrupt_line_map"].items():
+            combined_frame_corrupt_line_map[key] = value
 
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
@@ -700,6 +703,8 @@ def main():
                                     missing_frame_nums=missing_frame_nums,
                                     logger=logger)
     total_corrupt_lines += len(result["corrupt_lines"])
+    for key, value in result["frame_corrupt_line_map"].items():
+        combined_frame_corrupt_line_map[key] = value
 
     # Write out a report for the data collection as a whole
     dcid_report_path = os.path.join(args.work_dir, f"{dcid}_reassembly_report.txt")
@@ -732,7 +737,7 @@ def main():
         # Corrupt Lines
         f.write(f"Total corrupt lines (line count mismatches) in this data collection: {total_corrupt_lines}\n")
         f.write(f"List of corrupt lines (if any):\n")
-        for frame, line_nums in result["frame_corrupt_line_map"].items():
+        for frame, line_nums in combined_frame_corrupt_line_map.items():
             if len(line_nums) > 0:
                 line_nums.sort()
                 f.write(f"{frame}: {line_nums}\n")
