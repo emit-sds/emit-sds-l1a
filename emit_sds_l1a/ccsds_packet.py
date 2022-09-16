@@ -297,7 +297,7 @@ class SDPProcessingStats:
             "bytes_read_since_last_index": 0,
             "last_pkt_size": 0,
             "frames_read": 0,
-            "truncated_frame_errors": 0,
+            "truncated_frames": [],
             "corrupt_frames": [],
             "invalid_pkt_errors": 0,
             "invalid_psc": [],
@@ -342,8 +342,12 @@ class SDPProcessingStats:
     def frame_read(self):
         self._stats["frames_read"] += 1
 
-    def truncated_frame(self):
-        self._stats["truncated_frame_errors"] += 1
+    def truncated_frame(self, frame):
+        name = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
+                         str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
+                         str(frame.acq_status), str(frame.processed_flag)])
+        if name not in self._stats["truncated_frames"]:
+            self._stats["truncated_frames"].append(name)
 
     def corrupt_frame(self, frame):
         name = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
@@ -356,6 +360,9 @@ class SDPProcessingStats:
         return self._stats["data_bytes_read"]
 
     def __str__(self):
+        self._stats["truncated_frames"].sort()
+        truncated_frames_str = "\n".join([i for i in self._stats["truncated_frames"]])
+
         self._stats["corrupt_frames"].sort()
         corrupt_frames_str = "\n".join([i for i in self._stats["corrupt_frames"]])
 
@@ -373,6 +380,9 @@ class SDPProcessingStats:
             f"Total bytes read: {self._stats['bytes_read']}\n\n"
             f"Bytes read since last index: {self._stats['bytes_read_since_last_index']}\n\n"
             f"Total Frames Read: {self._stats['frames_read']}\n\n"
+            f"Truncated Frame Errors Encountered: {len(self._stats['truncated_frames'])}\n"
+            "Truncated Frames:\n"
+            f"{truncated_frames_str}\n\n"
             f"Corrupt Frame Errors Encountered: {len(self._stats['corrupt_frames'])}\n"
             "Corrupt Frames:\n"
             f"{corrupt_frames_str}\n\n"
@@ -623,6 +633,30 @@ class SciencePacketProcessor:
             # If neither of the above end cases is met, then read the next packet
             try:
                 pkt = self._read_next_packet()
+
+                # If we read the next packet and it contains a sync word before the expected frame length, then we have
+                # an issue
+                index = self._locate_sync_word_index(self.HEADER_SYNC_WORD, pkt.data)
+                if index is not None and data_accum_len + index < expected_frame_len:
+                    # This means we found an index too soon.  We need to save a partial packet and return packet parts.
+                    logger.info("Creating partial packet - found index too soon before expected frame length.")
+                    partial_data = pkt.data[index:]
+                    if self.pkt_format == "1.2.1":
+                        if pkt.pad_byte_flag == 0:
+                            body = pkt.body[:pkt.SEC_HDR_LEN] + partial_data + pkt.body[-pkt.CRC_LEN:]
+                        else:
+                            body = pkt.body[:pkt.SEC_HDR_LEN] + partial_data + bytearray(1) + pkt.body[-pkt.CRC_LEN:]
+                    else:
+                        body = pkt.body[:pkt.SEC_HDR_LEN] + partial_data + \
+                               pkt.body[-(pkt.CRC_LEN + pkt.num_garbage_bytes):]
+                    partial = ScienceDataPacket(hdr_data=pkt.hdr_data, body=body, pkt_format=self.pkt_format)
+                    self._pkt_partial = partial
+                    # Now crop the packet's data and return
+                    pkt.data = pkt.data[:index]
+                    pkt_parts.append(pkt)
+                    self._stats.truncated_frame(frame)
+                    return pkt_parts
+
             except PSCMismatchException as e:
                 logger.warning(e)
 

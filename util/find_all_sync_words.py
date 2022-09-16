@@ -5,14 +5,15 @@ import datetime
 import itertools
 
 from emit_sds_l1a.ccsds_packet import ScienceDataPacket
+from emit_sds_l1a.frame import Frame
 
 PRIMARY_HDR_LEN = 6
 HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("infile")
-parser.add_argument("method", type=int, default=1)
-parser.add_argument("pkt_format", default="1.3")
+parser.add_argument("--method", type=int, default=2)
+parser.add_argument("--pkt_format", default="1.3")
 args = parser.parse_args()
 
 in_file = open(args.infile, "rb")
@@ -48,7 +49,13 @@ else:
     for i in range(len(data) - len(HEADER_SYNC_WORD)):
         if data[i: i + len(HEADER_SYNC_WORD)] == HEADER_SYNC_WORD:
             indices.append(i)
+            frame = Frame(data[i: i + 1280])
+            fname = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
+                          str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
+                          str(frame.acq_status), str(frame.processed_flag)])
+            print(f"Index: {i} Frame: {fname} Data Size: {frame.data_size}")
+            break
 
-print(indices)
+# print(indices)
 print(f"Total sync words found: {len(indices)}")
 print(datetime.datetime.now())
