@@ -15,6 +15,7 @@ import subprocess
 
 from ait.core import dmc
 from argparse import RawTextHelpFormatter
+from collections import OrderedDict
 
 import numpy as np
 import spectral.io.envi as envi
@@ -106,6 +107,25 @@ def generate_line_count_lookup(line_headers, num_lines, increment, frame_num_str
     return lc_lookup
 
 
+def interpolate_missing_gps_times(lt_rows):
+    # Populate x, y from available gps times
+    x = []
+    y = []
+    for row in lt_rows:
+        if int(row[1]) >= 0:
+            x.append(int(row[0]))
+            y.append(int(row[1]))
+    x = np.array(x)
+    y = np.array(y)
+    m, b = np.polyfit(x, y, 1)
+
+    for row in lt_rows:
+        if int(row[1]) == -1:
+            row[1] = str(int(m * int(row[0]) + b)).zfill(19)
+
+    return lt_rows
+
+
 def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
     # Need to adjust line timestamp in the case where the clock rolls over (which happens about every 12 hours)
     if line_timestamp < os_time_timestamp:
@@ -158,16 +178,18 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
 
     cloudy_frame_nums = []
     line = 0
-    lt_file = open(line_timestamps_path, "w")
+    lt_rows = []
     lc_increment = 2 if processed_flag == 1 and coadd_mode == 1 else 1
     lc_lookup = None
     corrupt_lines = []
+    frame_corrupt_line_map = OrderedDict()
     num_valid_lines = 0
     for path in acq_data_paths:
         frame_num_str = os.path.basename(path).split(".")[0].split("_")[2]
         status = int(os.path.basename(path).split(".")[0].split("_")[4])
         start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
         logger.info(f"Adding frame {path}")
+        frame_corrupt_line_map[os.path.basename(path)] = []
         # Non-cloudy frames
         if status in (0, 1):
             num_valid_lines += num_lines
@@ -178,6 +200,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
             # DN values are in the range from 0 to 16384
             if processed_flag == 1:
                 output[line:line + num_lines, 1:, :] = output[line:line + num_lines, 1:, :] + 8192
+            else:
+                output[line:line + num_lines, 1:, :] = np.int16((np.int64(output[line:line + num_lines, 1:, :]) + 32768) >> 2)
 
             # Read line headers and process below
             line_headers = frame[:, 0, :]
@@ -193,6 +217,9 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                                    f"Assuming that all lines are corrupt.")
                     corrupt_lines += list(range(start_line_in_frame, start_line_in_frame + num_lines))
                     num_valid_lines -= num_lines
+                    frame_corrupt_line_map[os.path.basename(path)] = list(range(num_lines))
+                    # Set all values in these lines to corrupt flag value
+                    output[line:line + num_lines, 1:, :] = CORRUPT_LINE_FLAG
                 else:
                     logger.info(f"Found a good line count in frame {frame_num_str} and generated a line count lookup.")
 
@@ -211,13 +238,37 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                     os_time=timing_info[int(frame_num_str)]['os_time']
                 )
                 utc_time_str = get_utc_time_from_gps(nanosecs_since_gps).strftime("%Y-%m-%dT%H:%M:%S.%f")
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(nanosecs_since_gps).zfill(19)} "
-                              f"{utc_time_str} {str(line_timestamp).zfill(10)} {str(line_count).zfill(10)}\n")
+
+                # Write to timestamps file, but must insert -1 gps time for corrupt lines
+                if lc_lookup is None:
+                    # This line is corrupt since all lines in frame are corrupt in this case
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
+                                    str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
                 if lc_lookup is not None and lc_lookup[start_line_in_frame + i] != line_count:
-                    logger.warning(f"Found corrupt line at line number {start_line_in_frame + i}")
-                    corrupt_lines.append(start_line_in_frame + i)
-                    num_valid_lines -= 1
+                    logger.warning(f"Found corrupt line header at line number {start_line_in_frame + i}")
+                    corrupt_line_num = start_line_in_frame + i
+                    prev_corrupt_line_num = corrupt_line_num - 1
+                    if prev_corrupt_line_num >= 0 and prev_corrupt_line_num not in corrupt_lines:
+                        logger.warning(f"Setting previous line at index {prev_corrupt_line_num} as corrupt")
+                        corrupt_lines.append(prev_corrupt_line_num)
+                        num_valid_lines -= 1
+                        frame_corrupt_line_map[os.path.basename(path)].append(i - 1)
+                        output[prev_corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
+                    if corrupt_line_num not in corrupt_lines:
+                        logger.warning(f"Setting line at index {corrupt_line_num} as corrupt")
+                        corrupt_lines.append(corrupt_line_num)
+                        num_valid_lines -= 1
+                        frame_corrupt_line_map[os.path.basename(path)].append(i)
+                        output[corrupt_line_num, 1:, :] = CORRUPT_LINE_FLAG
+                    # Since this line header is corrupt, use -1 for gps time
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), utc_time_str,
+                                    str(line_timestamp).zfill(10), str(line_count).zfill(10)])
+
+                else:
+                    # Not corrupt, so write all the values
+                    lt_rows.append([str(start_line_in_frame + i).zfill(6), str(nanosecs_since_gps).zfill(19),
+                                    utc_time_str, str(line_timestamp).zfill(10), str(line_count).zfill(10)])
 
         # Cloudy frames
         if status in (4, 5):
@@ -226,26 +277,33 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         # Missing frames
         if status == 6:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), fill_value=MISSING_FRAME_FLAG,
                             dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         # Failed decompression
         if status == 7:
             frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
                             fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
             output[line:line + num_lines, :, :] = frame[:, :, :].copy()
             for i in range(num_lines):
-                lt_file.write(f"{str(start_line_in_frame + i).zfill(6)} {str(-1).zfill(19)} 0000-00-00T00:00:00.000000 "
-                              f"{str(-1).zfill(10)} {str(-1).zfill(10)}\n")
+                lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                                str(-1).zfill(10), str(-1).zfill(10)])
         line += num_lines
     del output
+
+    # Generate gpstime_lookup and replace -1 gps times with interpolated values
+    if num_valid_lines >= 2:
+        lt_rows = interpolate_missing_gps_times(lt_rows)
+    lt_file = open(line_timestamps_path, "w")
+    for row in lt_rows:
+        lt_file.write(" ".join(row) + "\n")
     lt_file.close()
 
     # Create a reassembly report
@@ -333,13 +391,10 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         f.write(f"List of corrupt lines (if any):\n")
         if len(corrupt_lines) > 0:
             for i, line_num in enumerate(corrupt_lines):
-                if i > 100:
-                    f.write(f"More than 100 corrupt lines. See line timestamp file.\n")
-                    break
                 f.write(f"{str(line_num).zfill(6)}\n")
         f.write("\n")
 
-    result = {"corrupt_lines": corrupt_lines}
+    result = {"corrupt_lines": corrupt_lines, "frame_corrupt_line_map": frame_corrupt_line_map}
     return result
 
 
@@ -569,6 +624,7 @@ def main():
     missing_frame_nums.sort()
     # Now remove failed decompression frame nums from missing frame nums list
     missing_frame_nums = list(set(missing_frame_nums) - set(failed_decompression_list))
+    missing_frame_nums.sort()
 
     logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
@@ -603,6 +659,7 @@ def main():
         f"{frame_chunksize} frames\n\n"
     logger.info(f"Using frame chunksize of {frame_chunksize} to split data collection into acquisitions.")
     total_corrupt_lines = 0
+    combined_frame_corrupt_line_map = OrderedDict()
     # Only do the chunking if there is enough left over for another full chunk
     while i + (2 * frame_chunksize) <= num_frames:
         acq_data_paths = frame_data_paths[i: i + frame_chunksize]
@@ -624,6 +681,8 @@ def main():
                                         logger=logger)
         i += frame_chunksize
         total_corrupt_lines += len(result["corrupt_lines"])
+        for key, value in result["frame_corrupt_line_map"].items():
+            combined_frame_corrupt_line_map[key] = value
 
     # There will be one left over at the end that is the frame_chunksize + remaining frames
     acq_data_paths = frame_data_paths[i:]
@@ -644,6 +703,8 @@ def main():
                                     missing_frame_nums=missing_frame_nums,
                                     logger=logger)
     total_corrupt_lines += len(result["corrupt_lines"])
+    for key, value in result["frame_corrupt_line_map"].items():
+        combined_frame_corrupt_line_map[key] = value
 
     # Write out a report for the data collection as a whole
     dcid_report_path = os.path.join(args.work_dir, f"{dcid}_reassembly_report.txt")
@@ -675,6 +736,11 @@ def main():
         f.write("\n")
         # Corrupt Lines
         f.write(f"Total corrupt lines (line count mismatches) in this data collection: {total_corrupt_lines}\n")
+        f.write(f"List of corrupt lines (if any):\n")
+        for frame, line_nums in combined_frame_corrupt_line_map.items():
+            if len(line_nums) > 0:
+                line_nums.sort()
+                f.write(f"{frame}: {line_nums}\n")
 
     logger.info("Done")
 

@@ -425,7 +425,7 @@ class SciencePacketProcessor:
             pkt = ScienceDataPacket(stream=self.stream, pkt_format=self.pkt_format)
             logger.debug(pkt)
             self._stats.ccsds_read(pkt)
-            pkt_hash = str(pkt.coarse_time) + str(pkt.fine_time) + str(pkt.pkt_seq_cnt)
+            pkt_hash = "_".join([str(pkt.coarse_time), str(pkt.fine_time), str(pkt.pkt_seq_cnt)])
 
             # Handle case where packet is not valid
             if not pkt.is_valid:

@@ -3,3 +3,5 @@ emit_sds_l1a.egg-info
 __pycache__
 .coverage
 .DS_Store
+*.log
+tmp
