@@ -146,8 +146,9 @@ def get_utc_time_from_gps(gps_time):
 
 
 def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, stop_time, timing_info, processed_flag,
-                           coadd_mode, num_bands, num_lines, image_dir, report_text, failed_decompression_list,
-                           uncompressed_list, missing_frame_nums, logger):
+                           compression_flag, coadd_mode, num_bands, num_lines, image_dir, report_text,
+                           corrupt_frames_list, failed_decompression_list, uncompressed_list, missing_frame_nums,
+                           logger):
     # Reassemble frames into ENVI image cube filling in missing and cloudy data with data flags
     # First create acquisition_id from frame start_time
     # Assume acquisitions are at least 1 second long
@@ -190,8 +191,8 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         start_line_in_frame = (int(frame_num_str) - start_index) * num_lines
         logger.info(f"Adding frame {path}")
         frame_corrupt_line_map[os.path.basename(path)] = []
-        # Non-cloudy frames
-        if status in (0, 1):
+        # If the data is compressed and not cloudy, OR if if the data is uncompressed and not cloudy or corrupt
+        if (compression_flag == 1 and status in (0, 1)) or (compression_flag == 0 and status in (0, 1, 9)):
             num_valid_lines += num_lines
             # Write frame to output array
             frame = np.memmap(path, shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])), dtype=np.int16, mode="r")
@@ -295,6 +296,17 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
             for i in range(num_lines):
                 lt_rows.append([str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
                                 str(-1).zfill(10), str(-1).zfill(10)])
+
+        # Corrupt and compressed
+        if compression_flag == 1 and status == 9:
+            frame = np.full(shape=(num_lines, int(hdr["bands"]), int(hdr["samples"])),
+                            fill_value=CORRUPT_FRAME_FLAG, dtype=np.int16)
+            output[line:line + num_lines, :, :] = frame[:, :, :].copy()
+            for i in range(num_lines):
+                lt_rows.append(
+                    [str(start_line_in_frame + i).zfill(6), str(-1).zfill(19), "0000-00-00T00:00:00.000000",
+                     str(-1).zfill(10), str(-1).zfill(10)])
+
         line += num_lines
     del output
 
@@ -352,13 +364,23 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         uncompressed_in_acq.sort()
 
         f.write(f"Total number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0 or cloudy flag set to 1): {len(uncompressed_in_acq)}\n")
+                f"(compression flag set to 0 or cloudy flag set to 1 or corrupt): {len(uncompressed_in_acq)}\n")
         f.write("List of frame numbers not requiring decompression (if any):\n")
         if len(uncompressed_in_acq) > 0:
             f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
         f.write("\n")
 
-        # Report on corrupt frames (frames that failed decompression)
+        # Report on corrupt frames
+        corrupt_frames_in_acq = list(set(acquisition_frame_nums) & set(corrupt_frames_list))
+        corrupt_frames_in_acq.sort()
+
+        f.write(f"Total corrupt frames encountered in this acquisition: {len(corrupt_frames_in_acq)}\n")
+        f.write("List of corrupt frame numbers (if any):\n")
+        if len(corrupt_frames_in_acq) > 0:
+            f.write("\n".join(i for i in corrupt_frames_in_acq) + "\n")
+        f.write("\n")
+
+        # Report on frames that failed decompression
         failed_decompression_in_acq = list(set(acquisition_frame_nums) & set(failed_decompression_list))
         failed_decompression_in_acq.sort()
 
@@ -478,8 +500,10 @@ def main():
     num_bands_list = []
     num_lines_list = []
     processed_flag_list = []
+    compression_flag_list = []
     coadd_mode_list = []
     instrument_mode_list = []
+    corrupt_frames_list = []
     failed_decompression_list = []
     uncompressed_list = []
     line_counts = [None] * int(expected_frame_num_str)
@@ -494,12 +518,19 @@ def main():
             frame_binary = f.read()
         frame = Frame(frame_binary)
         uncomp_frame_path = os.path.join(image_dir, os.path.basename(path) + ".xio.decomp")
+        compression_flag_list.append(frame.compression_flag)
 
         # Check frame checksum
         logger.debug(f"Frame is valid: {frame.is_valid()}")
 
-        # Decompress if compression flag is set and frame is not cloudy, otherwise, just copy file
-        if frame.compression_flag == 1 and frame.cloudy_flag == 0:
+        # Check if frame is corrupt
+        is_corrupt = False
+        if os.path.basename(path).split(".")[0].split("_")[4] == "9":
+            is_corrupt = True
+            corrupt_frames_list.append(os.path.basename(path).split(".")[0].split("_")[2])
+
+        # Decompress if compression flag is set and frame is not cloudy and not corrupt, otherwise, just copy file
+        if frame.compression_flag == 1 and frame.cloudy_flag == 0 and not is_corrupt:
             # Decompress frame
             interleave_arg = "--" + args.interleave
             cmd = [args.flexcodec_exe, path, "-a", args.constants_path, "-i", args.init_data_path, "-v",
@@ -524,7 +555,7 @@ def main():
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed or cloudy frame at {path}. Copying to {uncomp_frame_path}")
+            logger.info(f"Found uncompresssed, cloudy, or corrupt frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[2])
 
@@ -567,6 +598,14 @@ def main():
     # Update report with decompression stats
     failed_decompression_list.sort()
     uncompressed_list.sort()
+    corrupt_frames_list.sort()
+
+    # Abort if there is a mix of compressed and non-compressed
+    compression_flag_list.sort()
+    for i in range(len(compression_flag_list)):
+        if compression_flag_list[i] != compression_flag_list[0]:
+            raise RuntimeError(f"Not all frames have the same compression flag: {compression_flag_list}")
+    compression_flag = compression_flag_list[0]
 
     # Check all frames have same number of bands
     # num_bands_list.sort()
@@ -635,7 +674,7 @@ def main():
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
                                               num, expected_frame_num_str, "6"])))
 
-    # Add failed decompressions into frame_data_paths list with acquisition status of "" to indicate failed.
+    # Add failed decompressions into frame_data_paths list with acquisition status of "7" to indicate failed.
     for num in failed_decompression_list:
         frame_data_paths.append(
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
@@ -670,11 +709,13 @@ def main():
                                         stop_time=start_stop_times[i + frame_chunksize - 1][1],
                                         timing_info=timing_info,
                                         processed_flag=processed_flag,
+                                        compression_flag=compression_flag,
                                         coadd_mode=coadd_mode,
                                         num_bands=num_bands,
                                         num_lines=num_lines,
                                         image_dir=image_dir,
                                         report_text=report_txt,
+                                        corrupt_frames_list=corrupt_frames_list,
                                         failed_decompression_list=failed_decompression_list,
                                         uncompressed_list=uncompressed_list,
                                         missing_frame_nums=missing_frame_nums,
@@ -693,11 +734,13 @@ def main():
                                     stop_time=start_stop_times[num_frames - 1][1],
                                     timing_info=timing_info,
                                     processed_flag=processed_flag,
+                                    compression_flag=compression_flag,
                                     coadd_mode=coadd_mode,
                                     num_bands=num_bands,
                                     num_lines=num_lines,
                                     image_dir=image_dir,
                                     report_text=report_txt,
+                                    corrupt_frames_list=corrupt_frames_list,
                                     failed_decompression_list=failed_decompression_list,
                                     uncompressed_list=uncompressed_list,
                                     missing_frame_nums=missing_frame_nums,
@@ -710,6 +753,12 @@ def main():
     dcid_report_path = os.path.join(args.work_dir, f"{dcid}_reassembly_report.txt")
     with open(dcid_report_path, "w") as f:
         f.write(report_txt)
+        # Corrupt frames
+        f.write(f"Total corrupt frames in this data collection: {len(corrupt_frames_list)}\n")
+        f.write("List of corrupt frame numbers (if any):\n")
+        if len(corrupt_frames_list) > 0:
+            f.write("\n".join(i for i in corrupt_frames_list) + "\n")
+        f.write("\n")
         # Decompression errors
         f.write(f"Total decompression errors in this data collection: {len(failed_decompression_list)}\n")
         f.write("List of frame numbers that failed decompression (if any):\n")

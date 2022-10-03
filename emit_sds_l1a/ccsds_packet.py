@@ -346,11 +346,8 @@ class SDPProcessingStats:
         self._stats["truncated_frame_errors"] += 1
 
     def corrupt_frame(self, frame):
-        name = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
-                         str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
-                         str(frame.acq_status), str(frame.processed_flag)])
-        if name not in self._stats["corrupt_frames"]:
-            self._stats["corrupt_frames"].append(name)
+        if frame.corrupt_name not in self._stats["corrupt_frames"]:
+            self._stats["corrupt_frames"].append(frame.corrupt_name)
 
     def get_data_bytes_read(self):
         return self._stats["data_bytes_read"]
@@ -395,6 +392,7 @@ class SciencePacketProcessor:
         logger.debug(f"Initializing SciencePacketProcessor from path {stream_path} using FSW v{pkt_format}")
         self.stream = open(stream_path, "rb")
         self.pkt_format = pkt_format
+        self.corrupt_frames = set()
         self._cur_psc = -1
         self._cur_coarse = -1
         self._cur_fine = -1
@@ -657,6 +655,7 @@ class SciencePacketProcessor:
                         logger.info(f"Inserted garbage packet with {pkt.MAX_DATA_LEN} bytes of data. Accum data is "
                                     f"now {data_accum_len}")
                         self._stats.corrupt_frame(frame)
+                        self.corrupt_frames.add(frame.corrupt_name)
                     elif 0 < remaining_data_len < pkt.MAX_DATA_LEN:
                         if self.pkt_format == "1.2.1":
                             if pkt.pad_byte_flag == 0:
@@ -674,6 +673,7 @@ class SciencePacketProcessor:
                         logger.info(f"Inserted garbage packet with {remaining_data_len} bytes of data. Accum data is "
                                     f"now {data_accum_len}")
                         self._stats.corrupt_frame(frame)
+                        self.corrupt_frames.add(frame.corrupt_name)
 
             pkt_parts.append(pkt)
             data_accum_len += len(pkt.data)
