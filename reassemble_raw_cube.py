@@ -364,7 +364,7 @@ def reassemble_acquisition(acq_data_paths, start_index, stop_index, start_time, 
         uncompressed_in_acq.sort()
 
         f.write(f"Total number of frames not requiring decompression in this acquisition "
-                f"(compression flag set to 0 or cloudy flag set to 1 or corrupt): {len(uncompressed_in_acq)}\n")
+                f"(compression flag set to 0 or cloudy flag set to 1): {len(uncompressed_in_acq)}\n")
         f.write("List of frame numbers not requiring decompression (if any):\n")
         if len(uncompressed_in_acq) > 0:
             f.write("\n".join(i for i in uncompressed_in_acq) + "\n")
@@ -551,11 +551,15 @@ def main():
                     logger.error(f"Removing {uncomp_frame_path}")
                     os.remove(uncomp_frame_path)
                 continue
-                # raise RuntimeError(output.stderr.decode("utf-8"))
+
+        elif frame.compression_flag == 1 and is_corrupt:
+            # Do nothing - this frame will fail decompression so skip it
+            logger.info(f"Found compressed and corrupt frame at {path}. Not attempting to decompress or preserve.")
+            continue
 
         else:
             # Just copy the uncompressed frame and rename it
-            logger.info(f"Found uncompresssed, cloudy, or corrupt frame at {path}. Copying to {uncomp_frame_path}")
+            logger.info(f"Found uncompresssed or cloudy frame at {path}. Copying to {uncomp_frame_path}")
             shutil.copy2(path, uncomp_frame_path)
             uncompressed_list.append(os.path.basename(path).split(".")[0].split("_")[2])
 
@@ -664,7 +668,11 @@ def main():
     # Now remove failed decompression frame nums from missing frame nums list
     missing_frame_nums = list(set(missing_frame_nums) - set(failed_decompression_list))
     missing_frame_nums.sort()
+    # Also remove the corrupt frames which are purposely missing
+    missing_frame_nums = list(set(missing_frame_nums) - set(corrupt_frames_list))
+    missing_frame_nums.sort()
 
+    logger.debug(f"List of corrupt frame numbers (if any): {corrupt_frames_list}")
     logger.debug(f"List of failed decompression frame numbers (if any): {failed_decompression_list}")
     logger.debug(f"List of missing frame numbers (if any): {missing_frame_nums}")
 
@@ -679,6 +687,14 @@ def main():
         frame_data_paths.append(
             os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
                                               num, expected_frame_num_str, "7"])))
+
+    # If compressed, add corrupt paths into frame_data_paths list with acquisition status of "9" to indicate corrupt.
+    if compression_flag == 1:
+        for num in corrupt_frames_list:
+            frame_data_paths.append(
+                os.path.join(image_dir, "_".join([dcid, start_stop_times[int(num)][0].strftime("%Y%m%dt%H%M%S"),
+                                                  num, expected_frame_num_str, "9"])))
+
     frame_data_paths.sort(key=lambda x: os.path.basename(x).split("_")[2])
 
     # Update report based on frames
