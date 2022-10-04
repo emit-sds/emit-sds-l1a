@@ -86,7 +86,10 @@ def main():
         try:
             frame_binary = processor.read_frame()
             frame = Frame(frame_binary)
-            frame.save(frames_dir)
+            if frame.corrupt_name in processor.corrupt_frames:
+                frame.save(frames_dir, corrupt=True)
+            else:
+                frame.save(frames_dir, corrupt=False)
             frame_count += 1
         except EOFError:
             break
