@@ -53,8 +53,8 @@ else:
             indices.append(i)
             frame = Frame(data[i: i + 1280])
             fname = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
-                          str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
-                          str(frame.acq_status), str(frame.processed_flag)])
+                              str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
+                              str(frame.acq_status), str(frame.processed_flag)])
             print(f"- Size since last index: {i - last_index}")
             print(f"- Correct size: {True if last_size + 1280 == i - last_index else False}")
             print(f"Index: {i}, Frame: {fname}, Valid: {frame.is_valid()}, Data Size: {frame.data_size}")
@@ -66,4 +66,3 @@ else:
 # print(indices)
 print(f"Total sync words found: {len(indices)}")
 print(datetime.datetime.now())
-

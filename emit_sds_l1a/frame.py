@@ -160,11 +160,11 @@ class Frame:
 
         # Frame name and also corrupt name if needed
         self.name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
-                          str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
-                          str(self.acq_status), str(self.processed_flag)])
-        self.corrupt_name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                               str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
-                              str(9), str(self.processed_flag)])
+                              str(self.acq_status), str(self.processed_flag)])
+        self.corrupt_name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
+                                      str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
+                                      str(9), str(self.processed_flag)])
 
         logger.debug(f"Initialized frame: {self}")
 
