@@ -158,6 +158,14 @@ class Frame:
         self.instrument_mode_desc = "No match" if self.instrument_mode == "no_match" else \
             INSTRUMENT_MODES[self.instrument_mode]["desc"]
 
+        # Frame name and also corrupt name if needed
+        self.name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
+                              str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
+                              str(self.acq_status), str(self.processed_flag)])
+        self.corrupt_name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
+                                      str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
+                                      str(9), str(self.processed_flag)])
+
         logger.debug(f"Initialized frame: {self}")
 
     def __repr__(self):
@@ -218,12 +226,11 @@ class Frame:
                      f"Computed checksum: {self._compute_hdr_checksum()}")
         return is_valid
 
-    def save(self, out_dir):
-        fname = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
-                          str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
-                          str(self.acq_status), str(self.processed_flag)])
-
-        out_path = os.path.join(out_dir, fname)
+    def save(self, out_dir, corrupt=False):
+        if corrupt:
+            out_path = os.path.join(out_dir, self.corrupt_name)
+        else:
+            out_path = os.path.join(out_dir, self.name)
 
         logger.info("Writing frame to path %s" % out_path)
         logger.debug("data length is %s" % len(self.data))
