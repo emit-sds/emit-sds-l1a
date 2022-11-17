@@ -113,7 +113,7 @@ def main():
     # Read in the STO files and store data in out_arr
     # TODO: Do I need to fill in missing data somehow?
     out_arr = []
-    out_arr_lens = []
+    coarse_times = set()
     for p in sto_paths:
         logger.info(f"Processing file {p}")
 
@@ -149,10 +149,16 @@ def main():
                     # Check if data is in start/stop time range and if so, append to output array
                     if ind is None:
                         raise RuntimeError("Attempting to add data, but no header row has been found.")
-                    timestamp = get_utc_time_from_gps(int(data[ind["time_coarse"]]))
-                    if start_time <= timestamp <= stop_time:
+                    if data[ind["time_coarse"]] is None:
+                        # If there is no coarse time, then just move on to the next row
+                        logger.debug(f"Skipping row because no coarse time was found: {data}")
+                        continue
+                    coarse_time = int(data[ind["time_coarse"]])
+                    timestamp = get_utc_time_from_gps(coarse_time)
+                    if start_time <= timestamp <= stop_time and coarse_time not in coarse_times:
                         out_arr.append(data)
-                        out_arr_lens.append(len(data))
+                        coarse_times.add(coarse_time)
+                        logger.debug(f"Adding row: {data}")
                         # out_file.writelines(",".join(data).rstrip(",") + "\n")
                 # Set or reset data_start to True
                 if "Start_Data" in line:
