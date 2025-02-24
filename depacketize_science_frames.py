@@ -28,6 +28,7 @@ def main():
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
     parser.add_argument("--pkt_format", help="Flight software version to use", default="1.3")
+    parser.add_argument("--hdr_version", help="Frame header version to use", default="1")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--prev_stream_path", help="Path to previous CCSDS stream file")
     parser.add_argument("--prev_bytes_to_read", help="How many bytes to read from the end of the previous stream",
@@ -85,7 +86,7 @@ def main():
     while True:
         try:
             frame_binary = processor.read_frame()
-            frame = Frame(frame_binary)
+            frame = Frame(frame_binary, args.hdr_version)
             if frame.corrupt_name in processor.corrupt_frames:
                 frame.save(frames_dir, corrupt=True)
             else:
