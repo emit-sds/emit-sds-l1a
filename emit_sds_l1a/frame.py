@@ -120,7 +120,7 @@ INSTRUMENT_MODES = {
 
 class Frame:
 
-    def __init__(self, frame_binary, hdr_version="1"):
+    def __init__(self, frame_binary, frame_hdr_format="1.0"):
         self.HDR_NUM_BYTES = 1280
 
         # Read fields from header
@@ -142,18 +142,18 @@ class Frame:
         self.frame_count_in_acq = int.from_bytes(self.hdr[810:818], byteorder="little", signed=False)
         self.solar_zenith = int.from_bytes(self.hdr[822:826], byteorder="little", signed=False)
 
-        if hdr_version == "1":
+        if frame_hdr_format == "1.0":
             self.planned_num_frames = int.from_bytes(self.hdr[922:926], byteorder="little", signed=False)
             self.os_time_timestamp = int.from_bytes(self.hdr[926:930], byteorder="little", signed=False)
             self.os_time = int.from_bytes(self.hdr[930:938], byteorder="little", signed=False)
             self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
             self.coadd_mode = self.hdr[1010] & 0x01
-        elif hdr_version == "2":
-            self.planned_num_frames = int.from_bytes(self.hdr[978:982], byteorder="little", signed=False)
-            self.os_time_timestamp = int.from_bytes(self.hdr[988:992], byteorder="little", signed=False)
-            self.os_time = int.from_bytes(self.hdr[992:1000], byteorder="little", signed=False)
-            self.num_bands = int.from_bytes(self.hdr[1000:1004], byteorder="little", signed=False)
-            self.coadd_mode = self.hdr[1072] & 0x01
+        else:
+            self.planned_num_frames = int.from_bytes(self.hdr[1002:1006], byteorder="little", signed=False)
+            self.os_time_timestamp = int.from_bytes(self.hdr[1012:1016], byteorder="little", signed=False)
+            self.os_time = int.from_bytes(self.hdr[1016:1024], byteorder="little", signed=False)
+            self.num_bands = int.from_bytes(self.hdr[1024:1028], byteorder="little", signed=False)
+            self.coadd_mode = self.hdr[1096] & 0x01
 
         self.frame_header_checksum = int.from_bytes(self.hdr[1276:1280], byteorder="little", signed=False)
 

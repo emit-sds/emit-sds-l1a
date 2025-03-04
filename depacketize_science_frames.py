@@ -27,8 +27,8 @@ def main():
                     "    * Depacketization summary/report file named depacketize_science_frames_report.txt (default)\n",
         formatter_class=RawTextHelpFormatter)
     parser.add_argument("stream_path", help="Path to CCSDS stream file")
-    parser.add_argument("--pkt_format", help="Flight software version to use", default="1.3")
-    parser.add_argument("--hdr_version", help="Frame header version to use", default="1")
+    parser.add_argument("--pkt_format", help="The format of the CCSDS packet defined by FSW version (typically 1.2.1 or 1.3)", default="1.3")
+    parser.add_argument("--frame_hdr_format", help="The frame header format defined by FSW version (typically 1.0 or 1.5)", default="1.0")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--prev_stream_path", help="Path to previous CCSDS stream file")
     parser.add_argument("--prev_bytes_to_read", help="How many bytes to read from the end of the previous stream",
@@ -80,13 +80,13 @@ def main():
             f.write(stream)
 
     logger.info(f"Processing stream file {tmp_stream_path} using packet format from FSW v{args.pkt_format}")
-    processor = SciencePacketProcessor(tmp_stream_path, pkt_format=args.pkt_format)
+    processor = SciencePacketProcessor(tmp_stream_path, pkt_format=args.pkt_format, frame_hdr_format=args.frame_hdr_format)
 
     frame_count = 0
     while True:
         try:
             frame_binary = processor.read_frame()
-            frame = Frame(frame_binary, args.hdr_version)
+            frame = Frame(frame_binary, args.frame_hdr_format)
             if frame.corrupt_name in processor.corrupt_frames:
                 frame.save(frames_dir, corrupt=True)
             else:

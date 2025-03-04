@@ -124,15 +124,15 @@ class ScienceDataPacket(CCSDSPacket):
     EMIT Ethernet Engineering Data Packets.
     """
 
-    HEADER_SYNC_WORD = 0x81FFFF81
     PRIMARY_HDR_LEN = 6
     CRC_LEN = 4
 
-    def __init__(self, stream=None, pkt_format="1.3", **kwargs):
+    def __init__(self, stream=None, pkt_format="1.3", frame_hdr_format="1.0", **kwargs):
         """Inititialize EngineeringDataPacket
         Arguments:
             stream - A file object from which to read data (default: None)
             pkt_format - The format of the CCSDS packet defined by FSW version (typically 1.2.1 or 1.3)
+            frame_hdr_format - The frame header format defined by FSW version (typically 1.0 or 1.5)
         Keyword Arguments:
             - **hdr_data**: A bytes-like object containing 6-bytes
               of data that should be processed as a CCSDS Packet header.
@@ -142,6 +142,10 @@ class ScienceDataPacket(CCSDSPacket):
               enforced if these kwargs are used.
         """
         super(ScienceDataPacket, self).__init__(stream=stream, **kwargs)
+        if frame_hdr_format == "1.0":
+            self.HEADER_SYNC_WORD = 0x81FFFF81
+        else:
+            self.HEADER_SYNC_WORD = 0x82FFFF81
         self.pkt_format = pkt_format
         self.SEC_HDR_LEN = 11 if pkt_format == "1.2.1" else 13
         self.MAX_DATA_LEN = 1479 if pkt_format == "1.2.1" else 1477
@@ -385,12 +389,15 @@ class SDPProcessingStats:
 
 class SciencePacketProcessor:
 
-    HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
     MIN_PROCABLE_PKT_LEN = 8
 
-    def __init__(self, stream_path, pkt_format="1.3"):
-        logger.debug(f"Initializing SciencePacketProcessor from path {stream_path} using FSW v{pkt_format}")
+    def __init__(self, stream_path, pkt_format="1.3", frame_hdr_format="1.0"):
+        logger.debug(f"Initializing SciencePacketProcessor from path {stream_path} using pkt_format {pkt_format} and frame_hdr_format {frame_hdr_format}")
         self.stream = open(stream_path, "rb")
+        if frame_hdr_format == "1.0":
+            self.HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
+        else:
+            self.HEADER_SYNC_WORD = bytes.fromhex("82FFFF81")
         self.pkt_format = pkt_format
         self.corrupt_frames = set()
         self._cur_psc = -1

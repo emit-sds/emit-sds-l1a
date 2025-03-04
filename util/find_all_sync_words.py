@@ -8,16 +8,21 @@ from emit_sds_l1a.ccsds_packet import ScienceDataPacket
 from emit_sds_l1a.frame import Frame
 
 PRIMARY_HDR_LEN = 6
-HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("infile")
 parser.add_argument("--method", type=int, default=2)
 parser.add_argument("--pkt_format", default="1.3")
+parser.add_argument("--frame_hdr_format", default="1.0")
 args = parser.parse_args()
 
 in_file = open(args.infile, "rb")
 data = bytearray()
+
+if args.frame_hdr_format == "1.0":
+    HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
+else:
+    HEADER_SYNC_WORD = bytes.fromhex("82FFFF81")
 
 print(datetime.datetime.now())
 
