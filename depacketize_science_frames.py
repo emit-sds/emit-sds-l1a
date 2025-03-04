@@ -79,7 +79,7 @@ def main():
         with open(tmp_stream_path, "wb") as f:
             f.write(stream)
 
-    logger.info(f"Processing stream file {tmp_stream_path} using packet format from FSW v{args.pkt_format}")
+    logger.info(f"Processing stream file {tmp_stream_path} using pkt_format {args.pkt_format} and frame_hdr_format {args.frame_hdr_format}")
     processor = SciencePacketProcessor(tmp_stream_path, pkt_format=args.pkt_format, frame_hdr_format=args.frame_hdr_format)
 
     frame_count = 0

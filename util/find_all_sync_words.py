@@ -29,7 +29,7 @@ print(datetime.datetime.now())
 cnt = 0
 while True:
     try:
-        pkt = ScienceDataPacket(in_file, pkt_format=args.pkt_format)
+        pkt = ScienceDataPacket(in_file, pkt_format=args.pkt_format, frame_hdr_format=args.frame_hdr_format)
         cnt += 1
         data += pkt.data
     except EOFError:
