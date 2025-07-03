@@ -438,6 +438,8 @@ def main():
     parser.add_argument("--init_data_path", help="Path to init_data.bin file")
     parser.add_argument("--interleave", help="Interleave setting for decompression - bil (default) or bip",
                         default="bil")
+    parser.add_argument("--frame_hdr_format", help="The frame header format defined by FSW version (typically 1.0 or 1.5)", 
+                        default="1.0")
     parser.add_argument("--work_dir", help="Path to working directory", default=".")
     parser.add_argument("--level", help="Logging level", default="INFO")
     parser.add_argument("--log_path", help="Path to log file", default="reassemble_raw.log")
@@ -516,7 +518,7 @@ def main():
         logger.info(f"Reading in frame {path}")
         with open(path, "rb") as f:
             frame_binary = f.read()
-        frame = Frame(frame_binary)
+        frame = Frame(frame_binary, frame_hdr_format=args.frame_hdr_format)
         uncomp_frame_path = os.path.join(image_dir, os.path.basename(path) + ".xio.decomp")
         compression_flag_list.append(frame.compression_flag)
 
@@ -566,7 +568,7 @@ def main():
         # Get some frame header details and write out uncompressed frame data section
         with open(uncomp_frame_path, "rb") as f:
             uncomp_frame_binary = f.read()
-        uncomp_frame = Frame(uncomp_frame_binary)
+        uncomp_frame = Frame(uncomp_frame_binary, frame_hdr_format=args.frame_hdr_format)
 
         # Get start and stop times for each frame
         frame_num_index = int(os.path.basename(uncomp_frame_path).split(".")[0].split("_")[2])

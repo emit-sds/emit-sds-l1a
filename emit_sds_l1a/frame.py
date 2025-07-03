@@ -120,7 +120,7 @@ INSTRUMENT_MODES = {
 
 class Frame:
 
-    def __init__(self, frame_binary, frame_hdr_format="1.0"):
+    def __init__(self, frame_binary, frame_hdr_format="1.0", debug_index=None):
         self.HDR_NUM_BYTES = 1280
 
         # Read fields from header
@@ -171,6 +171,8 @@ class Frame:
         self.name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                               str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
                               str(self.acq_status), str(self.processed_flag)])
+        if debug_index:
+            self.name = f"{str(debug_index).zfill(3)}_{self.name}"
         self.corrupt_name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                                       str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
                                       str(9), str(self.processed_flag)])
@@ -185,9 +187,11 @@ class Frame:
         repr += "line_timestamp={} line_count={} ".format(self.line_timestamp, self.line_count)
         repr += "frame_count_in_acq={} solar_zenith={} planned_num_frames={} os_time_timestamp={} os_time={} ".format(
             self.frame_count_in_acq, self.solar_zenith, self.planned_num_frames, self.os_time_timestamp, self.os_time)
-        repr += " num_bands={} coadd_mode={} checksum={} os_time_utc={} start_time={} instrument_mode={}>".format(
+        repr += " num_bands={} coadd_mode={} checksum={} os_time_utc={} start_time={} instrument_mode={}".format(
             self.num_bands, self.coadd_mode, self.frame_header_checksum, self.os_time_in_utc, self.start_time,
             self.instrument_mode)
+        repr += " name={}>".format(
+            self.name)
         return repr
 
     def _get_utc_time_from_gps(self, gps_time):
@@ -257,13 +261,13 @@ class FrameStreamProcessor:
     def __init__(self, stream_path):
         self.stream = open(stream_path, "rb")
 
-    def process_frames(self, out_dir, dcid):
+    def process_frames(self, out_dir, dcid, frame_hdr_format):
         hdr = self.stream.read(1280)
         while len(hdr) == 1280:
             logger.debug(f"len(hdr): {len(hdr)}")
             data_size = int.from_bytes(hdr[4:8], byteorder="little", signed=False)
             data = self.stream.read(data_size)
-            frame = Frame(hdr + data)
+            frame = Frame(hdr + data, frame_hdr_format=frame_hdr_format)
             print(frame)
             # Write frame (header + data) to file
             fname = "_".join([dcid, str(frame.frame_count_in_acq).zfill(5)])

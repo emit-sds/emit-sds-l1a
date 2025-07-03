@@ -56,7 +56,7 @@ else:
     for i in range(len(data) - len(HEADER_SYNC_WORD)):
         if data[i: i + len(HEADER_SYNC_WORD)] == HEADER_SYNC_WORD:
             indices.append(i)
-            frame = Frame(data[i: i + 1280])
+            frame = Frame(data[i: i + 1280], frame_hdr_format=args.frame_hdr_format)
             fname = "_".join([str(frame.dcid).zfill(10), frame.start_time.strftime("%Y%m%dt%H%M%S"),
                               str(frame.frame_count_in_acq).zfill(5), str(frame.planned_num_frames).zfill(5),
                               str(frame.acq_status), str(frame.processed_flag)])

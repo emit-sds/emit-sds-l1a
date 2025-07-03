@@ -587,7 +587,7 @@ class SciencePacketProcessor:
                 while len(hdr_bytes) < 1280:
                     for pkt in pkt_parts:
                         hdr_bytes += pkt.data
-                frame = Frame(hdr_bytes[:1280])
+                frame = Frame(hdr_bytes[:1280], frame_hdr_format=self.frame_hdr_format)
                 if frame.is_valid():
                     logger.info(f"Found valid frame checksum for frame: {frame}")
                 else:
