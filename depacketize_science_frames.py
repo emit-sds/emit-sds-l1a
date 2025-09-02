@@ -87,10 +87,7 @@ def main():
         try:
             frame_binary = processor.read_frame()
             logger.info(f"Read frame {frame_count} from processor")
-            if args.level == "DEBUG":
-                frame = Frame(frame_binary, frame_hdr_format=args.frame_hdr_format, debug_index=frame_count)
-            else:
-                frame = Frame(frame_binary, frame_hdr_format=args.frame_hdr_format)
+            frame = Frame(frame_binary, frame_hdr_format=args.frame_hdr_format)
             if frame.corrupt_name in processor.corrupt_frames:
                 frame.save(frames_dir, corrupt=True)
             else:

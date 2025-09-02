@@ -120,7 +120,7 @@ INSTRUMENT_MODES = {
 
 class Frame:
 
-    def __init__(self, frame_binary, frame_hdr_format="1.0", debug_index=None):
+    def __init__(self, frame_binary, frame_hdr_format="1.0"):
         self.HDR_NUM_BYTES = 1280
 
         # Read fields from header
@@ -171,8 +171,6 @@ class Frame:
         self.name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                               str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
                               str(self.acq_status), str(self.processed_flag)])
-        if debug_index:
-            self.name = f"{str(debug_index).zfill(3)}_{self.name}"
         self.corrupt_name = "_".join([str(self.dcid).zfill(10), self.start_time.strftime("%Y%m%dt%H%M%S"),
                                       str(self.frame_count_in_acq).zfill(5), str(self.planned_num_frames).zfill(5),
                                       str(9), str(self.processed_flag)])
