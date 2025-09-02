@@ -148,7 +148,7 @@ class Frame:
             self.os_time = int.from_bytes(self.hdr[930:938], byteorder="little", signed=False)
             self.num_bands = int.from_bytes(self.hdr[938:942], byteorder="little", signed=False)
             self.coadd_mode = self.hdr[1010] & 0x01
-        else:
+        elif frame_hdr_format == "1.5":
             self.planned_num_frames = int.from_bytes(self.hdr[1002:1006], byteorder="little", signed=False)
             self.os_time_timestamp = int.from_bytes(self.hdr[1012:1016], byteorder="little", signed=False)
             self.os_time = int.from_bytes(self.hdr[1016:1024], byteorder="little", signed=False)

@@ -146,7 +146,7 @@ class ScienceDataPacket(CCSDSPacket):
         self.frame_hdr_format = frame_hdr_format
         if frame_hdr_format == "1.0":
             self.HEADER_SYNC_WORD = 0x81FFFF81
-        else:
+        elif frame_hdr_format == "1.5":
             self.HEADER_SYNC_WORD = 0x82FFFF81
         self.SEC_HDR_LEN = 11 if pkt_format == "1.2.1" else 13
         self.MAX_DATA_LEN = 1479 if pkt_format == "1.2.1" else 1477
@@ -399,7 +399,7 @@ class SciencePacketProcessor:
         self.frame_hdr_format = frame_hdr_format
         if frame_hdr_format == "1.0":
             self.HEADER_SYNC_WORD = bytes.fromhex("81FFFF81")
-        else:
+        elif frame_hdr_format == "1.5":
             self.HEADER_SYNC_WORD = bytes.fromhex("82FFFF81")
         self.corrupt_frames = set()
         self._cur_psc = -1
