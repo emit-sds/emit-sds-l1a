@@ -514,6 +514,7 @@ def main():
                    for x in range(int(expected_frame_num_str))]
 
     # Process frame headers and write out compressed data files
+    logger.info(f"Using frame_hdr_format {args.frame_hdr_format}")
     for path in frame_paths:
         logger.info(f"Reading in frame {path}")
         with open(path, "rb") as f:
