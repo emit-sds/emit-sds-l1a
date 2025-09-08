@@ -10,6 +10,7 @@ PRIMARY_HDR_LEN = 6
 parser = argparse.ArgumentParser()
 parser.add_argument("infile")
 parser.add_argument("threshold", type=int)
+parser.add_argument("--frame_hdr_format", default="1.0")
 args = parser.parse_args()
 
 in_file = open(args.infile, "rb")
@@ -27,7 +28,7 @@ total = 0
 counts = {}
 while True:
     try:
-        pkt = ScienceDataPacket(in_file)
+        pkt = ScienceDataPacket(in_file, frame_hdr_format=args.frame_hdr_format)
         total += 1
         seq_flag_counts[str(pkt.seq_flags)] += 1
         pkt_size = PRIMARY_HDR_LEN + pkt.pkt_data_len + 1

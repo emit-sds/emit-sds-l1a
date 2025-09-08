@@ -7,6 +7,7 @@ from emit_sds_l1a.ccsds_packet import ScienceDataPacket
 
 parser = argparse.ArgumentParser()
 parser.add_argument("infile")
+parser.add_argument("--frame_hdr_format", default="1.0")
 args = parser.parse_args()
 
 in_file = open(args.infile, "rb")
@@ -17,7 +18,7 @@ count = 0
 
 while True:
     try:
-        pkt = ScienceDataPacket(in_file)
+        pkt = ScienceDataPacket(in_file, frame_hdr_format=args.frame_hdr_format)
         if print_next_pkt:
             print(f"Next pkt: coarse={pkt.coarse_time}, fine={pkt.fine_time}, psc={pkt.pkt_seq_cnt}")
             print_next_pkt = False
