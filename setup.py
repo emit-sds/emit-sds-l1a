@@ -11,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="emit_sds_l1a",
-    version="1.5.1",
+    version="1.5.2",
     author="Winston Olson-Duvall",
     author_email="winston.olson-duvall@jpl.nasa.gov",
     description="""
