@@ -6,6 +6,7 @@ Author: Winston Olson-Duvall, winston.olson-duvall@jpl.nasa.gov
 
 import datetime as dt
 import logging
+import numpy as np
 import os
 
 from ait.core import dmc
@@ -194,7 +195,7 @@ class Frame:
     def _get_utc_time_from_gps(self, gps_time):
         # Convert gps_time in nanoseconds to a timestamp in utc
         d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-        offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
+        offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
         utc_time = d - dt.timedelta(seconds=offset)
         return utc_time
 
@@ -224,8 +225,7 @@ class Frame:
             sum += int.from_bytes(self.hdr[offset: offset + 4], byteorder="little", signed=False)
 
         # Get twos complement of sum
-        # hdrsumbin = bin(~(np.uint32(sum)) + 1)[2:]
-        hdrsumbin = format((~sum + 1) & 0xFFFFFFFF, '032b')
+        hdrsumbin = bin(~(np.uint32(sum)) + 1)[2:]
         if len(hdrsumbin) > 32:
             hdrsumbin = hdrsumbin[-32:]
 
@@ -233,7 +233,7 @@ class Frame:
 
     def is_valid(self):
         is_valid = self.frame_header_checksum == self._compute_hdr_checksum()
-        logger.debug(f"Frame checksum: {self.frame_header_checksum}, "
+        logger.debug(f"Frame checksume: {self.frame_header_checksum}, "
                      f"Computed checksum: {self._compute_hdr_checksum()}")
         return is_valid
 

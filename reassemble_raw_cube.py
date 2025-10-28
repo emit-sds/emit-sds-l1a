@@ -48,7 +48,7 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
     utc_time = d - dt.timedelta(seconds=offset)
     return utc_time
 
@@ -140,7 +140,7 @@ def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
+    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
     utc_time = d - dt.timedelta(seconds=offset)
     return utc_time
 
