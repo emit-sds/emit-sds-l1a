@@ -176,7 +176,6 @@ def main():
     max_time = int(out_arr[-1][ind["time_coarse"]])
 
     # Create NetCDF file and write out selected fields
-    # fout = h5netcdf.File(output_path, "w")
     fout = h5netcdf.File(output_path, "w", decode_vlen_strings=False)
     # Get GPS time from coarse and fine time, then subtract J2000 offset to get J2000 time
     tm = np.asarray([float(row[ind["time_coarse"]]) + float(row[ind["time_fine"]]) - J2000_OFFSET
