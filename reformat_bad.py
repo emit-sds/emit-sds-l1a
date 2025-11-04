@@ -192,9 +192,6 @@ def main():
 
     # Create Ephemeris group
     g = fout.create_group("Ephemeris")
-    # g.dimensions["t"] = len(tm)
-    # g.dimensions["position"] = 3
-    # g.dimensions["velocity"] = 3
     t = g.create_variable("time_j2000", ('t',), data=tm)
     t.attrs["units"] = "s"
     t = g.create_variable("eci_position", ('t', 'position'), data=pos)
@@ -206,8 +203,6 @@ def main():
 
     # Create Attitude group
     g = fout.create_group("Attitude")
-    # g.dimensions["t"] = len(tm)
-    # g.dimensions["quaternion"] = 4
     t = g.create_variable("time_j2000", ('t',), data=tm)
     t.attrs["units"] = "s"
     t = g.create_variable("quaternion", ('t', 'quat'), data=quat)
