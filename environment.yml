@@ -1,0 +1,25 @@
+name: emit-sds-l0-l1a
+channels:
+  - conda-forge
+dependencies:
+  - beautifulsoup4=4.14.2
+  - elasticsearch=9.1.1
+  - h5netcdf=1.7.3
+  - influxdb-client=1.49.0
+  - matplotlib=3.10.7
+  - numpy=2.2.6
+  - paramiko=3.5.1
+  - pip=22.3.1
+  - pycodestyle=2.14.0
+  - pysftp=0.2.9
+  - pytest=8.4.2
+  - pytest-cov=7.0.0
+  - python=3.10
+  - pytz=2025.2
+  - rust=1.76.0
+  - setuptools=63.4.3
+  - sortedcontainers=2.4.0
+  - spectral=0.24
+  - pip:
+    - ait-core==2.5.2
+    - ait-gui==2.3.1
