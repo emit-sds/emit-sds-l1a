@@ -11,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="emit_sds_l1a",
-    version="1.5.2",
+    version="1.6.0",
     author="Winston Olson-Duvall",
     author_email="winston.olson-duvall@jpl.nasa.gov",
     description="""
@@ -26,15 +26,20 @@ setuptools.setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3",
+    python_requires=">=3.10",
     install_requires=[
+        "ait-core==2.5.2",
+        "h5netcdf>=1.7.3",
+        "matplotlib>=3.10.7",
+        "numpy>=2.2.6",
         "sortedcontainers>=2.4.0",
-        "spectral>=0.21",
-        "numpy>=1.19.2",
-        "pytest>=6.2.1",
-        "pytest-cov>=2.10.1",
-        "pycodestyle>=2.6.0",
-        "ait-core>=2.3.5",
-        "h5netcdf>=0.11.0"
-    ]
+        "spectral>=0.24"
+    ],
+    extras_require={
+        "dev": [
+            "pycodestyle>=2.6.0",
+            "pytest>=6.2.1",
+            "pytest-cov>=2.10.1"
+        ]
+    }
 )

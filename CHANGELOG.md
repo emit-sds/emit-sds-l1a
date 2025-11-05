@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. Dates are displayed in UTC.
 
+#### [v1.6.0](https://github.com/emit-sds/emit-sds-l1a/compare/v1.5.2...v1.6.0)
+
+> 5 November 2025
+
+* Update software versions by @winstonolson in https://github.com/emit-sds/emit-sds-l1a/pull/14
+
+
 #### [v1.5.2](https://github.com/emit-sds/emit-sds-l1a/compare/v1.5.1...v1.5.2)
 
 > 8 September 2025

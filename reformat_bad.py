@@ -49,7 +49,7 @@ def lookup_header_indices(hdr):
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in seconds to a timestamp in utc
     d = dmc.GPS_Epoch + datetime.timedelta(seconds=gps_time)
-    offset = dmc.LeapSeconds.get_GPS_offset_for_date(d)
+    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
     utc_time = d - datetime.timedelta(seconds=offset)
     return utc_time
 
@@ -176,10 +176,10 @@ def main():
     max_time = int(out_arr[-1][ind["time_coarse"]])
 
     # Create NetCDF file and write out selected fields
-    fout = h5netcdf.File(output_path, "w")
+    fout = h5netcdf.File(output_path, "w", decode_vlen_strings=False)
     # Get GPS time from coarse and fine time, then subtract J2000 offset to get J2000 time
     tm = np.asarray([float(row[ind["time_coarse"]]) + float(row[ind["time_fine"]]) - J2000_OFFSET
-                     for row in out_arr], dtype=np.float)
+                     for row in out_arr], dtype=float)
     pos = np.zeros((tm.shape[0], 3))
     vel = np.zeros((tm.shape[0], 3))
     quat = np.zeros((tm.shape[0], 4))
@@ -189,6 +189,7 @@ def main():
         vel[i, :] = (row[ind["vel_x"]], row[ind["vel_y"]], row[ind["vel_z"]])
         quat[i, :] = (row[ind["att_q0"]], row[ind["att_q1"]], row[ind["att_q2"]], row[ind["att_q3"]])
 
+    # Create Ephemeris group
     g = fout.create_group("Ephemeris")
     t = g.create_variable("time_j2000", ('t',), data=tm)
     t.attrs["units"] = "s"
@@ -199,10 +200,11 @@ def main():
     t.attrs["description"] = "ECI velocity"
     t.attrs["units"] = "m/s"
 
+    # Create Attitude group
     g = fout.create_group("Attitude")
     t = g.create_variable("time_j2000", ('t',), data=tm)
     t.attrs["units"] = "s"
-    t = g.create_variable("quaternion", ('t', 'quaternion'), data=quat)
+    t = g.create_variable("quaternion", ('t', 'quat'), data=quat)
     t.attrs["description"] = "Attitude quaternion, goes from spacecraft to ECI. The coefficient convention used has " \
                              "the real part in the first column."
     t.attrs["units"] = "dimensionless"
