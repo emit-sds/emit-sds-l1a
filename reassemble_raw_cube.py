@@ -54,6 +54,10 @@ def get_utc_time_from_gps(gps_time):
 
 
 def calculate_start_stop_times(start_times_gps):
+
+    if sum(v is not None for v in start_times_gps) < 2:
+        raise ValueError("Need at least 2 valid GPS times to fit a line")
+    
     # Populate x, y from available gps times
     x = []
     y = []
@@ -657,7 +661,6 @@ def main():
                        f"been processed!")
 
     # Calculate start/stop times for each frame
-    # TODO: Raise error if only 1 data point
     start_stop_times = calculate_start_stop_times(start_times_gps)
 
     # Add empty decompressed frame files to fill in missing frame numbers
