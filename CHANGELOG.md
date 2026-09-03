@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. Dates are displayed in UTC.
 
+#### [v1.6.1](https://github.com/emit-sds/emit-sds-l1a/compare/v1.6.0...v1.6.1)
+
+> 3 September 2026
+
+* Require at least 2 valid GPS times for line fitting by @adamchlus in https://github.com/emit-sds/emit-sds-l1a/pull/16
+
 #### [v1.6.0](https://github.com/emit-sds/emit-sds-l1a/compare/v1.5.2...v1.6.0)
 
 > 5 November 2025
