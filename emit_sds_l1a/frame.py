@@ -11,6 +11,7 @@ import os
 logger = logging.getLogger("emit-sds-l1a")
 
 NUM_32_BIT_UINTS = 4294967296
+GPS_EPOCH = dt.datetime(1980, 1, 6)
 GPS_UTC_OFFSET = 18
 
 INSTRUMENT_MODES = {
@@ -190,11 +191,12 @@ class Frame:
             self.name)
         return repr
 
-    def _get_utc_time_from_gps(self, gps_time):
+    def _get_utc_time_from_gps(gps_time):
         # Convert gps_time in nanoseconds to a timestamp in utc
-        d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+        d = GPS_EPOCH + datetime.timedelta(seconds=gps_time / 10 ** 9)
         utc_time = d - dt.timedelta(seconds=GPS_UTC_OFFSET)
         return utc_time
+
 
     def _calc_start_time_gps(self):
         line_timestamp = self.line_timestamp

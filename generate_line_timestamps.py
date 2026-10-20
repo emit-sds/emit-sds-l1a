@@ -14,6 +14,7 @@ from argparse import RawTextHelpFormatter
 from spectral.io import envi
 
 NUM_32_BIT_UINTS = 4294967296
+GPS_EPOCH = datetime.datetime(1980, 1, 6)
 GPS_UTC_OFFSET = 18
 
 def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
@@ -29,7 +30,7 @@ def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_
 
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
-    d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
+    d = GPS_EPOCH + datetime.timedelta(seconds=gps_time / 10 ** 9)
     utc_time = d - dt.timedelta(seconds=GPS_UTC_OFFSET)
     return utc_time
 
