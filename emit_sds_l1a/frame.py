@@ -8,11 +8,10 @@ import datetime as dt
 import logging
 import os
 
-from ait.core import dmc
-
 logger = logging.getLogger("emit-sds-l1a")
 
 NUM_32_BIT_UINTS = 4294967296
+GPS_UTC_OFFSET = 18
 
 INSTRUMENT_MODES = {
     "LD": {
@@ -194,8 +193,7 @@ class Frame:
     def _get_utc_time_from_gps(self, gps_time):
         # Convert gps_time in nanoseconds to a timestamp in utc
         d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-        offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
-        utc_time = d - dt.timedelta(seconds=offset)
+        utc_time = d - dt.timedelta(seconds=GPS_UTC_OFFSET)
         return utc_time
 
     def _calc_start_time_gps(self):

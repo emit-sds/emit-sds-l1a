@@ -13,10 +13,8 @@ import os
 from argparse import RawTextHelpFormatter
 from spectral.io import envi
 
-from ait.core import dmc
-
 NUM_32_BIT_UINTS = 4294967296
-
+GPS_UTC_OFFSET = 18
 
 def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_time):
     # Need to adjust line timestamp in the case where the clock rolls over (which happens about every 12 hours)
@@ -32,8 +30,7 @@ def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
-    utc_time = d - dt.timedelta(seconds=offset)
+    utc_time = d - dt.timedelta(seconds=GPS_UTC_OFFSET)
     return utc_time
 
 

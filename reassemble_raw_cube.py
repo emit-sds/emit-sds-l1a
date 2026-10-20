@@ -13,7 +13,6 @@ import os
 import shutil
 import subprocess
 
-from ait.core import dmc
 from argparse import RawTextHelpFormatter
 from collections import OrderedDict
 
@@ -28,6 +27,7 @@ MISSING_FRAME_FLAG = -9998
 CORRUPT_FRAME_FLAG = -9997
 CORRUPT_LINE_FLAG = -9996
 CLOUDY_FRAME_FLAG = -9990
+GPS_UTC_OFFSET = 18
 
 INSTRUMENT_MODE_DESCRIPTIONS = {
     "LD": "Line driver mode standard pin stripe image",
@@ -48,8 +48,7 @@ INSTRUMENT_MODE_DESCRIPTIONS = {
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
-    utc_time = d - dt.timedelta(seconds=offset)
+    utc_time = d - dt.timedelta(seconds=GPS_UTC_OFFSET)
     return utc_time
 
 
@@ -144,7 +143,7 @@ def calculate_nanoseconds_since_gps_epoch(line_timestamp, os_time_timestamp, os_
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in nanoseconds to a timestamp in utc
     d = dmc.GPS_Epoch + dt.timedelta(seconds=(gps_time / 10 ** 9))
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
+    offset = dmc.GPS_UTC_OFFSET.get_gps_offset_for_date(d)
     utc_time = d - dt.timedelta(seconds=offset)
     return utc_time
 
@@ -665,6 +664,10 @@ def main():
 
     # Add empty decompressed frame files to fill in missing frame numbers
     raw_frame_nums = [int(os.path.basename(path).split("_")[2]) for path in frame_data_paths]
+    
+    good_frame_nums = set(str(n).zfill(5) for n in raw_frame_nums)
+    corrupt_frames_list = sorted(set(corrupt_frames_list) - good_frame_nums)
+    
     # seq_frame_nums = list(range(raw_frame_nums[0], raw_frame_nums[0] + len(raw_frame_nums)))
     seq_frame_nums = list(range(0, int(os.path.basename(frame_data_paths[0]).split("_")[3])))
     missing_frame_nums = list(set(seq_frame_nums) - set(raw_frame_nums))

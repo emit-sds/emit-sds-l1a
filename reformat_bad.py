@@ -15,10 +15,9 @@ from argparse import RawTextHelpFormatter
 
 import h5netcdf
 
-from ait.core import dmc
 
 J2000_OFFSET = 630763148.8160727
-
+GPS_UTC_OFFSET = 18
 
 def lookup_header_indices(hdr):
     iss_pui_map = {
@@ -49,8 +48,7 @@ def lookup_header_indices(hdr):
 def get_utc_time_from_gps(gps_time):
     # Convert gps_time in seconds to a timestamp in utc
     d = dmc.GPS_Epoch + datetime.timedelta(seconds=gps_time)
-    offset = dmc.LeapSeconds.get_gps_offset_for_date(d)
-    utc_time = d - datetime.timedelta(seconds=offset)
+    utc_time = d - datetime.timedelta(seconds=GPS_UTC_OFFSET)
     return utc_time
 
 
