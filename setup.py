@@ -26,9 +26,9 @@ setuptools.setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     install_requires=[
-        "ait-core==2.5.2",
+        "ait-core==3.1.1",
         "h5netcdf>=1.7.3",
         "matplotlib>=3.10.7",
         "numpy>=2.2.6",
